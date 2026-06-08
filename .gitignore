@@ -1,2 +1,19 @@
+# Rust
 /target
-build.sh
+Cargo.lock
+.cargo
+
+# Config (contains API keys)
+config.toml
+*.toml
+!Cargo.toml
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            artifact: acs-linux-x86_64
+          - target: aarch64-unknown-linux-musl
+            artifact: acs-linux-aarch64
+          - target: x86_64-pc-windows-gnu
+            artifact: acs-windows-x86_64.exe
+          - target: aarch64-pc-windows-gnullvm
+            artifact: acs-windows-aarch64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cargo-zigbuild
+        run: pip3 install ziglang && cargo install cargo-zigbuild --locked
+
+      - name: Build
+        run: cargo zigbuild --release --target ${{ matrix.target }}
+
+      - name: Collect binary
+        run: |
+          EXT=""
+          [[ "${{ matrix.target }}" == *windows* ]] && EXT=".exe"
+          cp target/${{ matrix.target }}/release/acs${EXT} ${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          TAG=$(date -u +%Y%m%d)
+          gh release create "$TAG" \
+            --repo "$REPO" --title "$TAG" \
+            --notes "Build $(date -u +%Y-%m-%d)" \
+            acs-linux-x86_64 acs-linux-aarch64 \
+            acs-windows-x86_64.exe acs-windows-aarch64.exe \
+            2>/dev/null \
+          || gh release upload "$TAG" \
+            acs-linux-x86_64 acs-linux-aarch64 \
+            acs-windows-x86_64.exe acs-windows-aarch64.exe \
+            --repo "$REPO" --clobber
