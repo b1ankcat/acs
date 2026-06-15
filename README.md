@@ -11,6 +11,7 @@
 
 - 🔄 **Multi-tool support** — manages Claude Code, OpenAI Codex CLI, and Gemini CLI from one place
 - 📋 **Named providers** — store multiple API endpoints/keys per tool and switch between them instantly
+- 🌐 **Fallback URLs** — configure backup endpoints per provider; benchmark and switch with `test`
 - 🖥️ **Interactive or scriptable** — guided TUI prompts for humans, `--flag` overrides for CI/automation
 - 💾 **Import / Export** — share provider configs across machines via TOML files
 - 🧹 **Clear** — wipe local sessions, history, and caches for Claude & Codex with a single command
@@ -67,6 +68,7 @@ acs <TOOL> <COMMAND> [OPTIONS]
 | `add [--name NAME] [--flags…]` | Add a new provider (interactive if no `--name`) |
 | `remove [PROVIDER]` | Remove a non-active provider |
 | `config [PROVIDER] [--flags…]` | Edit an existing provider's fields |
+| `test` | Benchmark all URLs for the active provider and select one interactively |
 | `status` | Show active provider for all tools |
 | `import <FILE>` | Import providers from a TOML file |
 | `export <FILE>` | Export all providers to a TOML file |
@@ -82,6 +84,8 @@ acs <TOOL> <COMMAND> [OPTIONS]
 | `--model` | ✅ | ✅ | ✅ |
 | `--haiku-model` / `--sonnet-model` / `--opus-model` | ✅ | — | — |
 | `--reasoning-effort` | — | ✅ | — |
+| `--add-fallback-url` | ✅ | ✅ | ✅ |
+| `--remove-fallback-url` | ✅ | ✅ | ✅ |
 
 ### Examples
 
@@ -91,7 +95,15 @@ acs claude add --name prod \
   --base-url https://api.anthropic.com \
   --api-key  sk-ant-... \
   --model    claude-opus-4-8 \
+  --add-fallback-url https://api-backup.example.com \
   -y
+
+# Benchmark all URLs for the active provider and pick the fastest
+acs claude test
+
+# Add / remove fallback URLs on an existing provider
+acs claude config prod --add-fallback-url https://api-backup.example.com
+acs claude config prod --remove-fallback-url https://api-backup.example.com
 
 # Switch providers
 acs claude use prod

@@ -11,6 +11,7 @@ type Result<T> = std::result::Result<T, InteractiveError>;
 pub struct AddProviderInput {
     pub name: String,
     pub fields: HashMap<String, String>,
+    pub fallback_urls: Vec<String>,
 }
 
 fn input_required(prompt: &str) -> Result<String> {
@@ -89,13 +90,18 @@ pub fn build_add_provider_fields(
             return Err(f.arg);
         }
     }
-    Ok(AddProviderInput { name: name.to_string(), fields: result })
+    Ok(AddProviderInput { name: name.to_string(), fields: result, fallback_urls: vec![] })
+}
+
+fn is_base_url_key(key: &str) -> bool {
+    matches!(key, "ANTHROPIC_BASE_URL" | "base_url" | "GOOGLE_GEMINI_BASE_URL")
 }
 
 /// Interactive add.
 pub fn prompt_add_provider(tool_name: &str) -> Result<AddProviderInput> {
     let name = input_required("Provider name:")?;
     let mut result = HashMap::new();
+    let mut fallback_urls = vec![];
 
     for f in fields::fields_for(tool_name) {
         if f.from_name {
@@ -119,6 +125,14 @@ pub fn prompt_add_provider(tool_name: &str) -> Result<AddProviderInput> {
         if let Some(v) = val {
             result.insert(f.key.to_string(), v);
         }
+        if is_base_url_key(f.key) {
+            loop {
+                match input_optional(&format!("Fallback URL {} (optional):", fallback_urls.len() + 1))? {
+                    Some(u) => fallback_urls.push(u),
+                    None => break,
+                }
+            }
+        }
     }
 
     println!("\n  Provider: {}", name);
@@ -127,11 +141,14 @@ pub fn prompt_add_provider(tool_name: &str) -> Result<AddProviderInput> {
             println!("  {}: {}", f.key, mask(val, f.secret));
         }
     }
+    for (i, u) in fallback_urls.iter().enumerate() {
+        println!("  Fallback URL {}: {}", i + 1, u);
+    }
 
     if !confirm_required("Add this provider?")? {
         return Err(InteractiveError::Cancelled);
     }
-    Ok(AddProviderInput { name, fields: result })
+    Ok(AddProviderInput { name, fields: result, fallback_urls })
 }
 
 pub fn prompt_select_provider(
@@ -209,6 +226,8 @@ pub fn prompt_config_edit(
     };
 
     let mut pending: Vec<(String, String, String)> = Vec::new();
+    let mut add_fallbacks: Vec<String> = vec![];
+    let mut remove_fallbacks: Vec<String> = vec![];
     if let Some(ref provider) = active_provider {
         for f in fields::fields_for(tool_name) {
             if !f.is_promptable() { continue; }
@@ -220,10 +239,31 @@ pub fn prompt_config_edit(
                     pending.push((f.key.to_string(), current.to_string(), v));
                 }
             }
+            if is_base_url_key(f.key) {
+                if !provider.fallback_urls.is_empty() {
+                    for (i, u) in provider.fallback_urls.iter().enumerate() {
+                        println!("  Fallback URL {}: {}", i + 1, u);
+                    }
+                }
+                loop {
+                    match input_optional(&format!("Add fallback URL {} (empty=done):", add_fallbacks.len() + 1))? {
+                        Some(u) => add_fallbacks.push(u),
+                        None => break,
+                    }
+                }
+                if !provider.fallback_urls.is_empty() {
+                    loop {
+                        match input_optional("Remove fallback URL (empty=done):")? {
+                            Some(u) => remove_fallbacks.push(u),
+                            None => break,
+                        }
+                    }
+                }
+            }
         }
     }
 
-    if home_opt.is_none() && pending.is_empty() {
+    if home_opt.is_none() && pending.is_empty() && add_fallbacks.is_empty() && remove_fallbacks.is_empty() {
         println!("No changes made.");
         return Ok((None, false));
     }
@@ -236,6 +276,12 @@ pub fn prompt_config_edit(
         let s = is_secret_key(key);
         println!("  {}: {} -> {}", key, mask(old, s), mask(new, s));
     }
+    for url in &add_fallbacks {
+        println!("  + fallback: {}", url);
+    }
+    for url in &remove_fallbacks {
+        println!("  - fallback: {}", url);
+    }
 
     if !confirm("Apply these changes?", yes)? {
         println!("Cancelled.");
@@ -245,6 +291,14 @@ pub fn prompt_config_edit(
     if let Some(provider) = active_provider {
         for (key, _, new_val) in pending {
             provider.fields.insert(key, new_val);
+        }
+        for url in add_fallbacks {
+            if !provider.fallback_urls.contains(&url) {
+                provider.fallback_urls.push(url);
+            }
+        }
+        for url in remove_fallbacks {
+            provider.fallback_urls.retain(|u| u != &url);
         }
     }
     Ok((home_opt, true))
@@ -338,6 +392,7 @@ mod tests {
                 ("ANTHROPIC_BASE_URL".to_string(), "https://old.example.com".to_string()),
                 ("ANTHROPIC_MODEL".to_string(), "claude-sonnet-4-6".to_string()),
             ].into(),
+            fallback_urls: vec![],
         };
         let args = make_args(&[("base-url", "https://new.example.com"), ("model", "claude-opus-4-8")]);
         let (home_opt, pending) = build_config_edits("claude", &provider, "~/.claude", None, &args);
@@ -351,6 +406,7 @@ mod tests {
     fn test_build_config_edits_no_change_when_same() {
         let provider = Provider {
             fields: [("ANTHROPIC_BASE_URL".to_string(), "https://same.example.com".to_string())].into(),
+            fallback_urls: vec![],
         };
         let args = make_args(&[("base-url", "https://same.example.com")]);
         let (_, pending) = build_config_edits("claude", &provider, "~/.claude", None, &args);
@@ -359,8 +415,9 @@ mod tests {
 
     #[test]
     fn test_build_config_edits_haiku_sonnet_opus() {
-        let provider = Provider { fields: HashMap::new() };
+        let provider = Provider { fields: HashMap::new(), fallback_urls: vec![] };
         let args = make_args(&[("haiku-model", "h"), ("sonnet-model", "s"), ("opus-model", "o")]);
+
         let (_, pending) = build_config_edits("claude", &provider, "~/.claude", None, &args);
         assert_eq!(pending.len(), 3);
         assert!(pending.iter().any(|(k, _, _)| k == "ANTHROPIC_DEFAULT_HAIKU_MODEL"));
@@ -368,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_build_config_edits_codex_reasoning_effort() {
-        let provider = Provider { fields: HashMap::new() };
+        let provider = Provider { fields: HashMap::new(), fallback_urls: vec![] };
         let args = make_args(&[("reasoning-effort", "high")]);
         let (_, pending) = build_config_edits("codex", &provider, "~/.codex", None, &args);
         assert!(pending.iter().any(|(k, _, _)| k == "model_reasoning_effort"));

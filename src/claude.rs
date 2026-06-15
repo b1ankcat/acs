@@ -100,7 +100,7 @@ mod tests {
     }
 
     fn make_provider(fields: std::collections::HashMap<String, String>) -> Provider {
-        Provider { fields }
+        Provider { fields, fallback_urls: vec![] }
     }
 
     #[test]

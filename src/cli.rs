@@ -39,6 +39,10 @@ pub struct ClaudeArgs {
     #[arg(long)] pub sonnet_model: Option<String>,
     /// ANTHROPIC_DEFAULT_OPUS_MODEL
     #[arg(long)] pub opus_model: Option<String>,
+    /// Add a fallback URL (repeatable)
+    #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
+    /// Remove a fallback URL (repeatable)
+    #[arg(long, value_name = "URL")] pub remove_fallback_url: Vec<String>,
 }
 
 #[derive(Args, Clone, Default)]
@@ -51,6 +55,10 @@ pub struct CodexArgs {
     #[arg(long)] pub model: Option<String>,
     /// model_reasoning_effort
     #[arg(long)] pub reasoning_effort: Option<String>,
+    /// Add a fallback URL (repeatable)
+    #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
+    /// Remove a fallback URL (repeatable)
+    #[arg(long, value_name = "URL")] pub remove_fallback_url: Vec<String>,
 }
 
 #[derive(Args, Clone, Default)]
@@ -61,6 +69,10 @@ pub struct GeminiArgs {
     #[arg(long)] pub api_key: Option<String>,
     /// GEMINI_MODEL
     #[arg(long)] pub model: Option<String>,
+    /// Add a fallback URL (repeatable)
+    #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
+    /// Remove a fallback URL (repeatable)
+    #[arg(long, value_name = "URL")] pub remove_fallback_url: Vec<String>,
 }
 
 // ── Unified ProviderArgs for main.rs → HashMap conversion ─────────────────
@@ -73,26 +85,31 @@ pub struct ProviderArgs {
     pub sonnet_model: Option<String>,
     pub opus_model: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub add_fallback_url: Vec<String>,
+    pub remove_fallback_url: Vec<String>,
 }
 
 impl From<ClaudeArgs> for ProviderArgs {
     fn from(a: ClaudeArgs) -> Self {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
                haiku_model: a.haiku_model, sonnet_model: a.sonnet_model,
-               opus_model: a.opus_model, reasoning_effort: None }
+               opus_model: a.opus_model, reasoning_effort: None,
+               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
     }
 }
 impl From<CodexArgs> for ProviderArgs {
     fn from(a: CodexArgs) -> Self {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
                reasoning_effort: a.reasoning_effort,
-               haiku_model: None, sonnet_model: None, opus_model: None }
+               haiku_model: None, sonnet_model: None, opus_model: None,
+               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
     }
 }
 impl From<GeminiArgs> for ProviderArgs {
     fn from(a: GeminiArgs) -> Self {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
-               haiku_model: None, sonnet_model: None, opus_model: None, reasoning_effort: None }
+               haiku_model: None, sonnet_model: None, opus_model: None, reasoning_effort: None,
+               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
     }
 }
 
@@ -113,6 +130,8 @@ pub enum ClaudeAction {
     Config { #[arg(value_name="PROVIDER", help="Provider name")] provider: Option<String>, #[arg(long, help="~/.claude home directory")] home: Option<String>, #[command(flatten)] fields: ClaudeArgs, #[arg(long, help="Rename this provider")] rename: Option<String>, #[arg(short='y', long="yes", help="Skip confirmation")] yes: bool },
     /// Clear local sessions, history, and cache files
     Clear  { #[arg(short='y', long="yes", help="Skip confirmation")] yes: bool },
+    /// Test all URLs for the active provider and select one interactively
+    Test,
 }
 
 #[derive(Subcommand)]
@@ -130,6 +149,8 @@ pub enum CodexAction {
     Config { #[arg(value_name="PROVIDER", help="Provider name")] provider: Option<String>, #[arg(long, help="~/.codex home directory")] home: Option<String>, #[command(flatten)] fields: CodexArgs, #[arg(long, help="Rename this provider")] rename: Option<String>, #[arg(short='y', long="yes", help="Skip confirmation")] yes: bool },
     /// Clear local sessions, history, and cache files
     Clear  { #[arg(short='y', long="yes", help="Skip confirmation")] yes: bool },
+    /// Test all URLs for the active provider and select one interactively
+    Test,
 }
 
 #[derive(Subcommand)]
@@ -145,6 +166,8 @@ pub enum GeminiAction {
     /// Edit configuration for a provider (interactive, or pass fields as arguments)
     #[command(override_usage = "acs gemini config [PROVIDER] [OPTIONS]")]
     Config { #[arg(value_name="PROVIDER", help="Provider name")] provider: Option<String>, #[arg(long, help="~/.gemini home directory")] home: Option<String>, #[command(flatten)] fields: GeminiArgs, #[arg(long, help="Rename this provider")] rename: Option<String>, #[arg(short='y', long="yes", help="Skip confirmation")] yes: bool },
+    /// Test all URLs for the active provider and select one interactively
+    Test,
 }
 
 #[cfg(test)]

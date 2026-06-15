@@ -8,6 +8,7 @@ mod fields;
 mod import_;
 mod gemini;
 mod prompts;
+mod test_cmd;
 
 #[cfg(test)]
 pub(crate) static HOME_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -43,10 +44,16 @@ fn handle_claude(action: ClaudeAction) -> Result<(), AcsError> {
     match action {
         ClaudeAction::List                              => cmd_list("claude", cfg.get_tool("claude")),
         ClaudeAction::Use    { provider, yes }         => cmd_use("claude", &mut cfg, provider.as_deref(), yes),
-        ClaudeAction::Add    { name, fields, yes }     => cmd_add("claude", &mut cfg, name.as_deref(), &provider_args_to_map(&fields.into()), yes),
+        ClaudeAction::Add    { name, fields, yes }     => {
+            let pargs: cli::ProviderArgs = fields.into();
+            cmd_add("claude", &mut cfg, name.as_deref(), &provider_args_to_map(&pargs), &pargs.add_fallback_url, yes)
+        }
         ClaudeAction::Remove { provider, yes }         => cmd_remove("claude", &mut cfg, provider.as_deref(), yes),
-        ClaudeAction::Config { provider, home, fields, rename, yes } =>
-            cmd_config("claude", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields.into()), rename.as_deref(), yes),
+        ClaudeAction::Config { provider, home, fields, rename, yes } => {
+            let pargs: cli::ProviderArgs = fields.into();
+            cmd_config("claude", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&pargs), rename.as_deref(), &pargs.add_fallback_url, &pargs.remove_fallback_url, yes)
+        }
+        ClaudeAction::Test => test_cmd::run_test("claude", &mut cfg),
         ClaudeAction::Clear  { .. } => unreachable!(),
     }
 }
@@ -60,10 +67,16 @@ fn handle_codex(action: CodexAction) -> Result<(), AcsError> {
     match action {
         CodexAction::List                              => cmd_list("codex", cfg.get_tool("codex")),
         CodexAction::Use    { provider, yes }         => cmd_use("codex", &mut cfg, provider.as_deref(), yes),
-        CodexAction::Add    { name, fields, yes }     => cmd_add("codex", &mut cfg, name.as_deref(), &provider_args_to_map(&fields.into()), yes),
+        CodexAction::Add    { name, fields, yes }     => {
+            let pargs: cli::ProviderArgs = fields.into();
+            cmd_add("codex", &mut cfg, name.as_deref(), &provider_args_to_map(&pargs), &pargs.add_fallback_url, yes)
+        }
         CodexAction::Remove { provider, yes }         => cmd_remove("codex", &mut cfg, provider.as_deref(), yes),
-        CodexAction::Config { provider, home, fields, rename, yes } =>
-            cmd_config("codex", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields.into()), rename.as_deref(), yes),
+        CodexAction::Config { provider, home, fields, rename, yes } => {
+            let pargs: cli::ProviderArgs = fields.into();
+            cmd_config("codex", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&pargs), rename.as_deref(), &pargs.add_fallback_url, &pargs.remove_fallback_url, yes)
+        }
+        CodexAction::Test => test_cmd::run_test("codex", &mut cfg),
         CodexAction::Clear  { .. } => unreachable!(),
     }
 }
@@ -73,10 +86,16 @@ fn handle_gemini(action: GeminiAction) -> Result<(), AcsError> {
     match action {
         GeminiAction::List                              => cmd_list("gemini", cfg.get_tool("gemini")),
         GeminiAction::Use    { provider, yes }         => cmd_use("gemini", &mut cfg, provider.as_deref(), yes),
-        GeminiAction::Add    { name, fields, yes }     => cmd_add("gemini", &mut cfg, name.as_deref(), &provider_args_to_map(&fields.into()), yes),
+        GeminiAction::Add    { name, fields, yes }     => {
+            let pargs: cli::ProviderArgs = fields.into();
+            cmd_add("gemini", &mut cfg, name.as_deref(), &provider_args_to_map(&pargs), &pargs.add_fallback_url, yes)
+        }
         GeminiAction::Remove { provider, yes }         => cmd_remove("gemini", &mut cfg, provider.as_deref(), yes),
-        GeminiAction::Config { provider, home, fields, rename, yes } =>
-            cmd_config("gemini", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields.into()), rename.as_deref(), yes),
+        GeminiAction::Config { provider, home, fields, rename, yes } => {
+            let pargs: cli::ProviderArgs = fields.into();
+            cmd_config("gemini", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&pargs), rename.as_deref(), &pargs.add_fallback_url, &pargs.remove_fallback_url, yes)
+        }
+        GeminiAction::Test => test_cmd::run_test("gemini", &mut cfg),
     }
 }
 
@@ -247,6 +266,7 @@ fn cmd_add(
     cfg: &mut config::AcsConfig,
     name: Option<&str>,
     cli_args: &std::collections::HashMap<&str, &str>,
+    fallback_urls: &[String],
     yes: bool,
 ) -> Result<(), AcsError> {
     let input = if let Some(n) = name {
@@ -293,7 +313,11 @@ fn cmd_add(
     }
 
     let was_new = !tool.providers.contains_key(&input.name);
-    let provider = config::Provider { fields: input.fields };
+    let mut all_fallbacks = input.fallback_urls;
+    for u in fallback_urls {
+        if !all_fallbacks.contains(u) { all_fallbacks.push(u.clone()); }
+    }
+    let provider = config::Provider { fields: input.fields, fallback_urls: all_fallbacks };
     tool.providers.insert(input.name.clone(), provider.clone());
 
     if was_new && tool.providers.len() == 1 {
@@ -352,6 +376,8 @@ fn cmd_config(
     new_home: Option<&str>,
     cli_args: &std::collections::HashMap<&str, &str>,
     rename: Option<&str>,
+    add_fallback: &[String],
+    remove_fallback: &[String],
     yes: bool,
 ) -> Result<(), AcsError> {
     let tool = cfg.get_tool_mut(tool_name);
@@ -371,7 +397,8 @@ fn cmd_config(
     };
 
     let is_active = name == tool.active;
-    let non_interactive = new_home.is_some() || !cli_args.is_empty() || rename.is_some();
+    let non_interactive = new_home.is_some() || !cli_args.is_empty() || rename.is_some()
+        || !add_fallback.is_empty() || !remove_fallback.is_empty();
 
     if non_interactive {
         let p = tool.providers.get(&name)
@@ -421,6 +448,14 @@ fn cmd_config(
             .expect("provider existence validated above");
         for (key, _, new_val) in pending {
             p.fields.insert(key, new_val);
+        }
+        for url in add_fallback {
+            if !p.fallback_urls.contains(url) {
+                p.fallback_urls.push(url.clone());
+            }
+        }
+        for url in remove_fallback {
+            p.fallback_urls.retain(|u| u != url);
         }
 
         if let Some(new_name) = rename {
@@ -537,7 +572,7 @@ mod tests {
     }
 
     fn make_provider(fields: std::collections::HashMap<String, String>) -> config::Provider {
-        config::Provider { fields }
+        config::Provider { fields, fallback_urls: vec![] }
     }
 
     #[test]
@@ -637,6 +672,7 @@ mod tests {
                 f.insert("ANTHROPIC_AUTH_TOKEN".to_string(), "sk-key-123".to_string());
                 f
             },
+            fallback_urls: vec![],
         };
         tool.providers.insert("new-prov".to_string(), p);
         assert_eq!(tool.providers.len(), 1);

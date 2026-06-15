@@ -66,7 +66,7 @@ pub(crate) fn parse_claude_native(dir: &Path) -> Result<Option<Provider>, AcsErr
     }
 
     // A provider without a base URL is unusable; treat as nothing to import.
-    Ok(if fields.contains_key("ANTHROPIC_BASE_URL") { Some(Provider { fields }) } else { None })
+    Ok(if fields.contains_key("ANTHROPIC_BASE_URL") { Some(Provider { fields, ..Default::default() }) } else { None })
 }
 
 pub(crate) fn parse_codex_native(dir: &Path) -> Result<Option<Provider>, AcsError> {
@@ -135,7 +135,7 @@ pub(crate) fn parse_codex_native(dir: &Path) -> Result<Option<Provider>, AcsErro
     }
 
     // A provider without base_url is unusable; treat as nothing to import.
-    Ok(if fields.contains_key("base_url") { Some(Provider { fields }) } else { None })
+    Ok(if fields.contains_key("base_url") { Some(Provider { fields, ..Default::default() }) } else { None })
 }
 
 pub(crate) fn parse_gemini_native(dir: &Path) -> Result<Option<Provider>, AcsError> {
@@ -157,7 +157,7 @@ pub(crate) fn parse_gemini_native(dir: &Path) -> Result<Option<Provider>, AcsErr
     }
 
     // A provider without base URL is unusable; treat as nothing to import.
-    Ok(if fields.contains_key("GOOGLE_GEMINI_BASE_URL") { Some(Provider { fields }) } else { None })
+    Ok(if fields.contains_key("GOOGLE_GEMINI_BASE_URL") { Some(Provider { fields, fallback_urls: vec![] }) } else { None })
 }
 
 #[cfg(test)]
@@ -182,14 +182,10 @@ mod tests {
     }
 
     fn make_claude_provider(url: &str, token: &str) -> Provider {
-        Provider {
-            fields: {
-                let mut f = std::collections::HashMap::new();
-                f.insert("ANTHROPIC_BASE_URL".to_string(), url.to_string());
-                f.insert("ANTHROPIC_AUTH_TOKEN".to_string(), token.to_string());
-                f
-            },
-        }
+        let mut f = std::collections::HashMap::new();
+        f.insert("ANTHROPIC_BASE_URL".to_string(), url.to_string());
+        f.insert("ANTHROPIC_AUTH_TOKEN".to_string(), token.to_string());
+        Provider { fields: f, fallback_urls: vec![] }
     }
 
     // ── TOML import tests ──

@@ -1,5 +1,5 @@
 use crate::errors::{AcsError, ConfigError, ProviderError};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -37,10 +37,49 @@ fn default_active() -> String {
     "default".to_string()
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Provider {
-    #[serde(flatten)]
+    pub fallback_urls: Vec<String>,
     pub fields: HashMap<String, String>,
+}
+
+impl Serialize for Provider {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let extra = if self.fallback_urls.is_empty() { 0 } else { 1 };
+        let mut map = s.serialize_map(Some(self.fields.len() + extra))?;
+        if !self.fallback_urls.is_empty() {
+            map.serialize_entry("fallback_urls", &self.fallback_urls)?;
+        }
+        for (k, v) in &self.fields {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Provider {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Provider;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "a map")
+            }
+            fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<Provider, M::Error> {
+                let mut p = Provider::default();
+                while let Some(k) = map.next_key::<String>()? {
+                    if k == "fallback_urls" {
+                        p.fallback_urls = map.next_value()?;
+                    } else {
+                        p.fields.insert(k, map.next_value()?);
+                    }
+                }
+                Ok(p)
+            }
+        }
+        d.deserialize_map(V)
+    }
 }
 
 impl Provider {
@@ -55,6 +94,29 @@ impl Provider {
             .or_else(|| self.fields.get("GOOGLE_GEMINI_BASE_URL"))
             .map(|s| s.as_str())
             .unwrap_or("")
+    }
+
+    /// All URLs for this provider: primary first, then fallbacks (deduped).
+    pub fn all_urls(&self) -> Vec<String> {
+        let primary = self.base_url().to_string();
+        let mut urls = if primary.is_empty() { vec![] } else { vec![primary] };
+        for u in &self.fallback_urls {
+            if !urls.contains(u) {
+                urls.push(u.clone());
+            }
+        }
+        urls
+    }
+
+    /// Set the primary URL for the given tool.
+    pub fn set_base_url(&mut self, tool: &str, url: String) {
+        let key = match tool {
+            "claude" => "ANTHROPIC_BASE_URL",
+            "codex" => "base_url",
+            "gemini" => "GOOGLE_GEMINI_BASE_URL",
+            _ => return,
+        };
+        self.fields.insert(key.to_string(), url);
     }
 
     pub fn model(&self, tool_name: &str) -> Option<&str> {
@@ -260,7 +322,7 @@ mod tests {
     }
 
     fn make_provider(fields: HashMap<String, String>) -> Provider {
-        Provider { fields }
+        Provider { fields, fallback_urls: vec![] }
     }
 
     #[test]
