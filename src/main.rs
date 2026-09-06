@@ -104,10 +104,13 @@ fn provider_args_to_map<'a>(f: &'a cli::ProviderArgs) -> std::collections::HashM
         ("base-url",         f.base_url.as_deref()),
         ("api-key",          f.api_key.as_deref()),
         ("model",            f.model.as_deref()),
+        ("subagent-model",   f.subagent_model.as_deref()),
         ("haiku-model",      f.haiku_model.as_deref()),
         ("sonnet-model",     f.sonnet_model.as_deref()),
         ("opus-model",       f.opus_model.as_deref()),
         ("reasoning-effort", f.reasoning_effort.as_deref()),
+        ("model-context-window", f.model_context_window.as_deref()),
+        ("model-auto-compact-token-limit", f.model_auto_compact_token_limit.as_deref()),
     ]
     .into_iter()
     .filter_map(|(k, v)| v.map(|v| (k, v)))

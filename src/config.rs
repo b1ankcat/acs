@@ -259,6 +259,10 @@ pub fn ensure_tool_defaults(config: &mut AcsConfig) {
             tool.active = default_active();
         }
     }
+    for provider in config.codex.providers.values_mut() {
+        provider.fields.entry("model_context_window".to_string()).or_insert_with(|| "1000000".to_string());
+        provider.fields.entry("model_auto_compact_token_limit".to_string()).or_insert_with(|| "900000".to_string());
+    }
 }
 
 pub fn get_active_provider(tool: &ToolConfig) -> Option<&Provider> {
@@ -620,6 +624,18 @@ base_url = "https://example.com"
         assert_eq!(cfg.claude.active, "custom-active");
         assert_eq!(cfg.codex.home, "/custom/codex");
         assert_eq!(cfg.codex.active, "custom-codex");
+    }
+
+    #[test]
+    fn test_ensure_tool_defaults_adds_codex_context_defaults() {
+        let mut cfg = AcsConfig::default();
+        cfg.codex.providers.insert("custom".to_string(), Provider::default());
+
+        ensure_tool_defaults(&mut cfg);
+
+        let provider = &cfg.codex.providers["custom"];
+        assert_eq!(provider.get("model_context_window"), Some("1000000"));
+        assert_eq!(provider.get("model_auto_compact_token_limit"), Some("900000"));
     }
 
     #[test]

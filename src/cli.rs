@@ -33,6 +33,8 @@ pub struct ClaudeArgs {
     #[arg(long)] pub api_key: Option<String>,
     /// ANTHROPIC_MODEL
     #[arg(long)] pub model: Option<String>,
+    /// CLAUDE_CODE_SUBAGENT_MODEL
+    #[arg(long)] pub subagent_model: Option<String>,
     /// ANTHROPIC_DEFAULT_HAIKU_MODEL
     #[arg(long)] pub haiku_model: Option<String>,
     /// ANTHROPIC_DEFAULT_SONNET_MODEL
@@ -55,6 +57,10 @@ pub struct CodexArgs {
     #[arg(long)] pub model: Option<String>,
     /// model_reasoning_effort
     #[arg(long)] pub reasoning_effort: Option<String>,
+    /// model_context_window
+    #[arg(long)] pub model_context_window: Option<String>,
+    /// model_auto_compact_token_limit
+    #[arg(long)] pub model_auto_compact_token_limit: Option<String>,
     /// Add a fallback URL (repeatable)
     #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
     /// Remove a fallback URL (repeatable)
@@ -81,26 +87,30 @@ pub struct ProviderArgs {
     pub base_url: Option<String>,
     pub api_key: Option<String>,
     pub model: Option<String>,
+    pub subagent_model: Option<String>,
     pub haiku_model: Option<String>,
     pub sonnet_model: Option<String>,
     pub opus_model: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub model_context_window: Option<String>,
+    pub model_auto_compact_token_limit: Option<String>,
     pub add_fallback_url: Vec<String>,
     pub remove_fallback_url: Vec<String>,
 }
 
 impl From<ClaudeArgs> for ProviderArgs {
     fn from(a: ClaudeArgs) -> Self {
-        Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
+        Self { base_url: a.base_url, api_key: a.api_key, model: a.model, subagent_model: a.subagent_model,
                haiku_model: a.haiku_model, sonnet_model: a.sonnet_model,
-               opus_model: a.opus_model, reasoning_effort: None,
+               opus_model: a.opus_model, reasoning_effort: None, model_context_window: None, model_auto_compact_token_limit: None,
                add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
     }
 }
 impl From<CodexArgs> for ProviderArgs {
     fn from(a: CodexArgs) -> Self {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
-               reasoning_effort: a.reasoning_effort,
+               reasoning_effort: a.reasoning_effort, model_context_window: a.model_context_window, model_auto_compact_token_limit: a.model_auto_compact_token_limit,
+               subagent_model: None,
                haiku_model: None, sonnet_model: None, opus_model: None,
                add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
     }
@@ -108,7 +118,7 @@ impl From<CodexArgs> for ProviderArgs {
 impl From<GeminiArgs> for ProviderArgs {
     fn from(a: GeminiArgs) -> Self {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
-               haiku_model: None, sonnet_model: None, opus_model: None, reasoning_effort: None,
+               haiku_model: None, sonnet_model: None, opus_model: None, reasoning_effort: None, model_context_window: None, model_auto_compact_token_limit: None, subagent_model: None,
                add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
     }
 }
@@ -239,6 +249,24 @@ mod tests {
     fn test_parse_codex_add_with_reasoning_effort() {
         let cli = Cli::try_parse_from(["acs", "codex", "add", "--name", "n", "--base-url", "https://x", "--reasoning-effort", "high", "-y"]).unwrap();
         assert!(matches!(cli.command, Command::Codex { action: CodexAction::Add { yes: true, .. } }));
+    }
+
+    #[test]
+    fn test_parse_new_model_limits() {
+        let cli = Cli::try_parse_from(["acs", "codex", "add", "--name", "n", "--base-url", "https://x", "--model-context-window", "123", "--model-auto-compact-token-limit", "100", "-y"]).unwrap();
+        assert!(matches!(cli.command, Command::Codex { action: CodexAction::Add { .. } }));
+    }
+
+    #[test]
+    fn test_parse_codex_config_model_limits() {
+        let cli = Cli::try_parse_from(["acs", "codex", "config", "n", "--model-context-window", "123", "--model-auto-compact-token-limit", "100", "-y"]).unwrap();
+        assert!(matches!(cli.command, Command::Codex { action: CodexAction::Config { .. } }));
+    }
+
+    #[test]
+    fn test_parse_claude_subagent_model() {
+        let cli = Cli::try_parse_from(["acs", "claude", "add", "--name", "n", "--base-url", "https://x", "--subagent-model", "claude-haiku", "-y"]).unwrap();
+        assert!(matches!(cli.command, Command::Claude { action: ClaudeAction::Add { .. } }));
     }
 
     #[test]

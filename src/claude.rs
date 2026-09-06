@@ -35,6 +35,7 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
     let claude_keys = [
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL",
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
@@ -150,6 +151,26 @@ mod tests {
             "sk-ant-old"
         );
         assert_eq!(loaded["effortLevel"].as_str().unwrap(), "high");
+    }
+
+    #[test]
+    fn test_apply_provider_writes_subagent_model() {
+        let dir = setup_temp_home();
+        let home_dir = dir.join(".claude");
+        fs::create_dir_all(&home_dir).unwrap();
+        let _guard = home_lock();
+        env::set_var("HOME", dir.to_str().unwrap());
+
+        let provider = make_provider({
+            let mut f = std::collections::HashMap::new();
+            f.insert("ANTHROPIC_BASE_URL".to_string(), "https://api.example.com".to_string());
+            f.insert("CLAUDE_CODE_SUBAGENT_MODEL".to_string(), "claude-haiku".to_string());
+            f
+        });
+        apply_provider("~/.claude", &provider).unwrap();
+
+        let settings = crate::config::read_settings("~/.claude").unwrap();
+        assert_eq!(settings["env"]["CLAUDE_CODE_SUBAGENT_MODEL"].as_str(), Some("claude-haiku"));
     }
 
     #[test]

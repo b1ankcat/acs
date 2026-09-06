@@ -84,6 +84,9 @@ acs <TOOL> <COMMAND> [OPTIONS]
 | `--model` | ✅ | ✅ | ✅ |
 | `--haiku-model` / `--sonnet-model` / `--opus-model` | ✅ | — | — |
 | `--reasoning-effort` | — | ✅ | — |
+| `--model-context-window` | — | ✅ (default `1000000`) | — |
+| `--model-auto-compact-token-limit` | — | ✅ (default `900000`) | — |
+| `--subagent-model` | ✅ | — | — |
 | `--add-fallback-url` | ✅ | ✅ | ✅ |
 | `--remove-fallback-url` | ✅ | ✅ | ✅ |
 
@@ -95,6 +98,7 @@ acs claude add --name prod \
   --base-url https://api.anthropic.com \
   --api-key  sk-ant-... \
   --model    claude-opus-4-8 \
+  --subagent-model claude-haiku-4-5 \
   --add-fallback-url https://api-backup.example.com \
   -y
 
@@ -104,6 +108,12 @@ acs claude test
 # Add / remove fallback URLs on an existing provider
 acs claude config prod --add-fallback-url https://api-backup.example.com
 acs claude config prod --remove-fallback-url https://api-backup.example.com
+
+# Configure Codex context and auto-compaction limits
+acs codex add --name work --base-url https://api.openai.com/v1 \
+  --model-context-window 1000000 \
+  --model-auto-compact-token-limit 900000 -y
+acs codex config work --model-context-window 1200000 -y
 
 # Switch providers
 acs claude use prod

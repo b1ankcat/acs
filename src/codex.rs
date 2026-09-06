@@ -54,6 +54,8 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
         "model_provider",
         "disable_response_storage",
         "model_reasoning_effort",
+        "model_context_window",
+        "model_auto_compact_token_limit",
         "base_url",
         "requires_openai_auth",
         "openai_api_key",
@@ -66,6 +68,8 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
         ("model", false),
         ("model_provider", false),
         ("model_reasoning_effort", false),
+        ("model_context_window", false),
+        ("model_auto_compact_token_limit", false),
         ("disable_response_storage", true),
     ];
     for &(toml_key, is_bool) in key_map {
@@ -73,6 +77,11 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
             if !val.is_empty() {
                 if is_bool {
                     table.insert(toml_key.to_string(), Value::Boolean(val == "true"));
+                } else if matches!(toml_key, "model_context_window" | "model_auto_compact_token_limit") {
+                    let parsed = val.parse::<i64>().map_err(|_| {
+                        ConfigError::parse(config_path(home), format!("{} must be an integer", toml_key))
+                    })?;
+                    table.insert(toml_key.to_string(), Value::Integer(parsed));
                 } else {
                     table.insert(toml_key.to_string(), Value::String(val.clone()));
                 }
@@ -342,6 +351,30 @@ requires_openai_auth = true
 
         let loaded = read_config("~/.codex").unwrap();
         assert_eq!(loaded["model_reasoning_effort"].as_str().unwrap(), "high");
+    }
+
+    #[test]
+    fn test_apply_provider_writes_context_limits_as_integers() {
+        let dir = setup_temp_home();
+        let home_dir = dir.join(".codex");
+        fs::create_dir_all(&home_dir).unwrap();
+        let _guard = home_lock();
+        env::set_var("HOME", dir.to_str().unwrap());
+
+        write_config("~/.codex", &toml::Value::Table(toml::Table::new())).unwrap();
+        let provider = make_provider({
+            let mut f = std::collections::HashMap::new();
+            f.insert("base_url".to_string(), "https://api.example.com".to_string());
+            f.insert("model_provider".to_string(), "p".to_string());
+            f.insert("model_context_window".to_string(), "1000000".to_string());
+            f.insert("model_auto_compact_token_limit".to_string(), "900000".to_string());
+            f
+        });
+        apply_provider("~/.codex", &provider).unwrap();
+
+        let loaded = read_config("~/.codex").unwrap();
+        assert_eq!(loaded["model_context_window"].as_integer(), Some(1_000_000));
+        assert_eq!(loaded["model_auto_compact_token_limit"].as_integer(), Some(900_000));
     }
 
     #[test]

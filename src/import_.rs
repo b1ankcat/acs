@@ -57,6 +57,7 @@ pub(crate) fn parse_claude_native(dir: &Path) -> Result<Option<Provider>, AcsErr
     for key in &[
         "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
     ] {
         if let Some(v) = env.and_then(|e| e.get(*key).and_then(|v| v.as_str())) {
             if !v.is_empty() {
@@ -114,10 +115,17 @@ pub(crate) fn parse_codex_native(dir: &Path) -> Result<Option<Provider>, AcsErro
         }
     }
 
-    for key in &["model", "model_provider", "model_reasoning_effort"] {
-        if let Some(v) = toml_val.get(*key).and_then(|v| v.as_str()) {
-            if !v.is_empty() {
-                fields.insert(key.to_string(), v.to_string());
+    for key in &["model", "model_provider", "model_reasoning_effort", "model_context_window", "model_auto_compact_token_limit"] {
+        if let Some(v) = toml_val.get(*key) {
+            let text = match v {
+                toml::Value::String(s) => s.clone(),
+                toml::Value::Integer(n) => n.to_string(),
+                toml::Value::Float(n) => n.to_string(),
+                toml::Value::Boolean(b) => b.to_string(),
+                _ => String::new(),
+            };
+            if !text.is_empty() {
+                fields.insert(key.to_string(), text);
             }
         }
     }

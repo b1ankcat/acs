@@ -82,10 +82,10 @@ pub fn build_add_provider_fields(
     for f in fields::fields_for(tool_name) {
         if f.from_name {
             result.insert(f.key.to_string(), name.to_string());
-        } else if let Some(default) = f.default {
-            result.insert(f.key.to_string(), default.to_string());
         } else if let Some(&val) = cli_args.get(f.arg) {
             result.insert(f.key.to_string(), val.to_string());
+        } else if let Some(default) = f.default {
+            result.insert(f.key.to_string(), default.to_string());
         } else if f.required {
             return Err(f.arg);
         }
@@ -109,7 +109,24 @@ pub fn prompt_add_provider(tool_name: &str) -> Result<AddProviderInput> {
             continue;
         }
         if let Some(default) = f.default {
-            result.insert(f.key.to_string(), default.to_string());
+            if f.editable_default {
+                let prompt = format!("{} (default: {}):", f.key, default);
+                if let Some(v) = input_optional(&prompt)? {
+                    result.insert(f.key.to_string(), v);
+                } else {
+                    result.insert(f.key.to_string(), default.to_string());
+                }
+            } else {
+                result.insert(f.key.to_string(), default.to_string());
+            }
+            if is_base_url_key(f.key) {
+                loop {
+                    match input_optional(&format!("Fallback URL {} (optional):", fallback_urls.len() + 1))? {
+                        Some(u) => fallback_urls.push(u),
+                        None => break,
+                    }
+                }
+            }
             continue;
         }
         let prompt = if f.required {
@@ -370,6 +387,16 @@ mod tests {
         assert_eq!(input.fields["model_reasoning_effort"], "high");
         assert_eq!(input.fields["wire_api"], "responses");
         assert_eq!(input.fields["model_provider"], "my-codex");
+        assert_eq!(input.fields["model_context_window"], "1000000");
+        assert_eq!(input.fields["model_auto_compact_token_limit"], "900000");
+    }
+
+    #[test]
+    fn test_build_add_codex_limits_can_override_defaults() {
+        let args = make_args(&[("base-url", "https://api.openai.com/v1"), ("model-context-window", "123"), ("model-auto-compact-token-limit", "100")]);
+        let input = build_add_provider_fields("codex", "my-codex", &args).unwrap();
+        assert_eq!(input.fields["model_context_window"], "123");
+        assert_eq!(input.fields["model_auto_compact_token_limit"], "100");
     }
 
     #[test]
