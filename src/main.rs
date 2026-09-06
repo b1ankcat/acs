@@ -282,6 +282,8 @@ fn cmd_add(
     };
 
     config::validate_provider_name(&input.name)?;
+    fields::validate_provider_fields(tool_name, &input.fields)
+        .map_err(InteractiveError::input)?;
 
     let tool = cfg.get_tool_mut(tool_name);
 
@@ -409,6 +411,12 @@ fn cmd_config(
             .clone();
 
         let (home_opt, pending) = prompts::build_config_edits(tool_name, &p, &tool.home, new_home, cli_args);
+        let mut updated_fields = p.fields.clone();
+        for (key, _, new_value) in &pending {
+            updated_fields.insert(key.clone(), new_value.clone());
+        }
+        fields::validate_provider_fields(tool_name, &updated_fields)
+            .map_err(InteractiveError::input)?;
 
         // Handle rename
         if let Some(new_name) = rename {
@@ -418,7 +426,11 @@ fn cmd_config(
             }
         }
 
-        let has_changes = home_opt.is_some() || !pending.is_empty() || rename.is_some();
+        let has_changes = home_opt.is_some()
+            || !pending.is_empty()
+            || rename.is_some()
+            || !add_fallback.is_empty()
+            || !remove_fallback.is_empty();
         if !has_changes {
             println!("No changes made.");
             return Ok(());
@@ -433,6 +445,12 @@ fn cmd_config(
             let old_d = if s && !old.is_empty() { "****" } else { old.as_str() };
             let new_d = if s && !new.is_empty() { "****" } else { new.as_str() };
             println!("  {}: {} -> {}", key, old_d, new_d);
+        }
+        for url in add_fallback {
+            println!("  + fallback: {}", url);
+        }
+        for url in remove_fallback {
+            println!("  - fallback: {}", url);
         }
         if let Some(new_name) = rename {
             println!("  rename: {} -> {}", name, new_name);
@@ -492,6 +510,11 @@ fn cmd_config(
         if !changed {
             return Ok(());
         }
+
+        let provider = tool.providers.get(&name)
+            .ok_or_else(|| ProviderError::not_found(&name, tool_name))?;
+        fields::validate_provider_fields(tool_name, &provider.fields)
+            .map_err(InteractiveError::input)?;
 
         if let Some(h) = home_opt {
             tool.home = h;
@@ -808,5 +831,87 @@ mod tests {
         assert_eq!(tool.active, "first");
         tool.active = "second".to_string();
         assert_eq!(tool.active, "second");
+    }
+
+    #[test]
+    fn test_cmd_config_updates_fallback_urls_without_field_edits() {
+        let dir = setup_temp_home();
+        let _guard = home_lock();
+        env::set_var("HOME", dir.to_str().unwrap());
+
+        let mut cfg = config::AcsConfig::default();
+        cfg.claude.home = "~/.claude".to_string();
+        cfg.claude.active = "prod".to_string();
+        cfg.claude.providers.insert(
+            "prod".to_string(),
+            make_provider({
+                let mut f = std::collections::HashMap::new();
+                f.insert("ANTHROPIC_BASE_URL".to_string(), "https://api.anthropic.com".to_string());
+                f
+            }),
+        );
+
+        let args = std::collections::HashMap::new();
+        cmd_config(
+            "claude",
+            &mut cfg,
+            Some("prod"),
+            None,
+            &args,
+            None,
+            &["https://backup.example.com".to_string()],
+            &[],
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(
+            cfg.claude.providers["prod"].fallback_urls,
+            vec!["https://backup.example.com"]
+        );
+    }
+
+    #[test]
+    fn test_cmd_add_codex_writes_default_context_limits() {
+        let dir = setup_temp_home();
+        let _guard = home_lock();
+        env::set_var("HOME", dir.to_str().unwrap());
+
+        let mut cfg = config::AcsConfig::default();
+        cfg.codex.home = "~/.codex".to_string();
+        let args = [("base-url", "https://api.example.com")].into_iter().collect();
+        cmd_add("codex", &mut cfg, Some("prod"), &args, &[], true).unwrap();
+
+        let provider = &cfg.codex.providers["prod"];
+        assert_eq!(provider.get("model_context_window"), Some("1000000"));
+        assert_eq!(provider.get("model_auto_compact_token_limit"), Some("900000"));
+
+        let native = codex::read_config("~/.codex").unwrap();
+        assert_eq!(native["model_context_window"].as_integer(), Some(1_000_000));
+        assert_eq!(native["model_auto_compact_token_limit"].as_integer(), Some(900_000));
+    }
+
+    #[test]
+    fn test_cmd_config_rejects_invalid_codex_context_limits() {
+        let dir = setup_temp_home();
+        let _guard = home_lock();
+        env::set_var("HOME", dir.to_str().unwrap());
+
+        let mut cfg = config::AcsConfig::default();
+        cfg.codex.home = "~/.codex".to_string();
+        cfg.codex.active = "prod".to_string();
+        cfg.codex.providers.insert(
+            "prod".to_string(),
+            make_provider({
+                let mut f = std::collections::HashMap::new();
+                f.insert("base_url".to_string(), "https://api.example.com".to_string());
+                f.insert("model_provider".to_string(), "prod".to_string());
+                f
+            }),
+        );
+        let args = [("model-context-window", "0")].into_iter().collect();
+
+        assert!(cmd_config("codex", &mut cfg, Some("prod"), None, &args, None, &[], &[], true).is_err());
+        assert_eq!(cfg.codex.providers["prod"].get("model_context_window"), None);
     }
 }

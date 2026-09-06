@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use toml::Value;
 
 use crate::config::{expand_path, Provider};
+use crate::fields::{
+    DEFAULT_MODEL_AUTO_COMPACT_TOKEN_LIMIT, DEFAULT_MODEL_CONTEXT_WINDOW,
+};
 
 const CLEAR_CONTENT_DIRS: &[&str] = &[
     "sessions",
@@ -42,6 +45,27 @@ pub fn write_config(home: &str, value: &Value) -> Result<(), AcsError> {
 
 pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
     let path = config_path(home);
+    let context_window = parse_positive_limit(
+        "model_context_window",
+        provider
+            .get("model_context_window")
+            .unwrap_or(DEFAULT_MODEL_CONTEXT_WINDOW),
+        &path,
+    )?;
+    let auto_compact_limit = parse_positive_limit(
+        "model_auto_compact_token_limit",
+        provider
+            .get("model_auto_compact_token_limit")
+            .unwrap_or(DEFAULT_MODEL_AUTO_COMPACT_TOKEN_LIMIT),
+        &path,
+    )?;
+    if auto_compact_limit >= context_window {
+        return Err(ConfigError::parse(
+            &path,
+            "model_auto_compact_token_limit must be less than model_context_window",
+        )
+        .into());
+    }
     let mut value = read_config(home)?;
     let table = value
         .as_table_mut()
@@ -63,7 +87,7 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
         table.remove(*key);
     }
 
-    // Top-level fields: model, model_provider, model_reasoning_effort, disable_response_storage
+    // Top-level fields: model, model_provider, model reasoning, context limits, and storage.
     let key_map: &[(&str, bool)] = &[
         ("model", false),
         ("model_provider", false),
@@ -73,15 +97,18 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
         ("disable_response_storage", true),
     ];
     for &(toml_key, is_bool) in key_map {
+        if toml_key == "model_context_window" {
+            table.insert(toml_key.to_string(), Value::Integer(context_window));
+            continue;
+        }
+        if toml_key == "model_auto_compact_token_limit" {
+            table.insert(toml_key.to_string(), Value::Integer(auto_compact_limit));
+            continue;
+        }
         if let Some(val) = provider.fields.get(toml_key) {
             if !val.is_empty() {
                 if is_bool {
                     table.insert(toml_key.to_string(), Value::Boolean(val == "true"));
-                } else if matches!(toml_key, "model_context_window" | "model_auto_compact_token_limit") {
-                    let parsed = val.parse::<i64>().map_err(|_| {
-                        ConfigError::parse(config_path(home), format!("{} must be an integer", toml_key))
-                    })?;
-                    table.insert(toml_key.to_string(), Value::Integer(parsed));
                 } else {
                     table.insert(toml_key.to_string(), Value::String(val.clone()));
                 }
@@ -148,6 +175,16 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
     }
 
     write_config(home, &value)
+}
+
+fn parse_positive_limit(key: &str, value: &str, path: &std::path::Path) -> Result<i64, AcsError> {
+    let parsed = value
+        .parse::<i64>()
+        .map_err(|_| ConfigError::parse(path, format!("{key} must be a positive integer")))?;
+    if parsed <= 0 {
+        return Err(ConfigError::parse(path, format!("{key} must be a positive integer")).into());
+    }
+    Ok(parsed)
 }
 
 pub fn clear_targets(home: &str) -> Vec<ClearTarget> {
@@ -354,7 +391,7 @@ requires_openai_auth = true
     }
 
     #[test]
-    fn test_apply_provider_writes_context_limits_as_integers() {
+    fn test_apply_provider_uses_default_context_limits_for_legacy_provider() {
         let dir = setup_temp_home();
         let home_dir = dir.join(".codex");
         fs::create_dir_all(&home_dir).unwrap();
@@ -366,8 +403,6 @@ requires_openai_auth = true
             let mut f = std::collections::HashMap::new();
             f.insert("base_url".to_string(), "https://api.example.com".to_string());
             f.insert("model_provider".to_string(), "p".to_string());
-            f.insert("model_context_window".to_string(), "1000000".to_string());
-            f.insert("model_auto_compact_token_limit".to_string(), "900000".to_string());
             f
         });
         apply_provider("~/.codex", &provider).unwrap();
@@ -375,6 +410,26 @@ requires_openai_auth = true
         let loaded = read_config("~/.codex").unwrap();
         assert_eq!(loaded["model_context_window"].as_integer(), Some(1_000_000));
         assert_eq!(loaded["model_auto_compact_token_limit"].as_integer(), Some(900_000));
+    }
+
+    #[test]
+    fn test_apply_provider_rejects_invalid_context_limits() {
+        let dir = setup_temp_home();
+        let home_dir = dir.join(".codex");
+        fs::create_dir_all(&home_dir).unwrap();
+        let _guard = home_lock();
+        env::set_var("HOME", dir.to_str().unwrap());
+
+        let provider = make_provider({
+            let mut f = std::collections::HashMap::new();
+            f.insert("base_url".to_string(), "https://api.example.com".to_string());
+            f.insert("model_provider".to_string(), "p".to_string());
+            f.insert("model_context_window".to_string(), "900000".to_string());
+            f.insert("model_auto_compact_token_limit".to_string(), "900000".to_string());
+            f
+        });
+
+        assert!(apply_provider("~/.codex", &provider).is_err());
     }
 
     #[test]

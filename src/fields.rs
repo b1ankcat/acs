@@ -1,4 +1,6 @@
 /// Metadata for a single provider field.
+use std::collections::HashMap;
+
 pub struct FieldDef {
     /// Internal config key (e.g. "ANTHROPIC_BASE_URL")
     pub key: &'static str,
@@ -16,6 +18,9 @@ pub struct FieldDef {
     pub from_name: bool,
 }
 
+pub const DEFAULT_MODEL_CONTEXT_WINDOW: &str = "1000000";
+pub const DEFAULT_MODEL_AUTO_COMPACT_TOKEN_LIMIT: &str = "900000";
+
 impl FieldDef {
     /// Returns true if this field should appear in interactive prompts (not auto-filled).
     pub fn is_promptable(&self) -> bool {
@@ -24,32 +29,62 @@ impl FieldDef {
 }
 
 pub static CLAUDE_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "ANTHROPIC_BASE_URL",            arg: "base-url",        required: true,  secret: false, default: None,           editable_default: false, from_name: false },
-    FieldDef { key: "ANTHROPIC_AUTH_TOKEN",          arg: "api-key",         required: false, secret: true,  default: None,           editable_default: false, from_name: false },
-    FieldDef { key: "ANTHROPIC_MODEL",               arg: "model",           required: false, secret: false, default: None,           editable_default: false, from_name: false },
-    FieldDef { key: "CLAUDE_CODE_SUBAGENT_MODEL",    arg: "subagent-model",  required: false, secret: false, default: None,           editable_default: false, from_name: false },
-    FieldDef { key: "ANTHROPIC_DEFAULT_HAIKU_MODEL", arg: "haiku-model",     required: false, secret: false, default: None,           editable_default: false, from_name: false },
-    FieldDef { key: "ANTHROPIC_DEFAULT_SONNET_MODEL",arg: "sonnet-model",    required: false, secret: false, default: None,           editable_default: false, from_name: false },
-    FieldDef { key: "ANTHROPIC_DEFAULT_OPUS_MODEL",  arg: "opus-model",      required: false, secret: false, default: None,           editable_default: false, from_name: false },
+    FieldDef { key: "ANTHROPIC_BASE_URL", arg: "base-url", required: true, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "ANTHROPIC_AUTH_TOKEN", arg: "api-key", required: false, secret: true, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "ANTHROPIC_MODEL", arg: "model", required: false, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "CLAUDE_CODE_SUBAGENT_MODEL", arg: "subagent-model", required: false, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "ANTHROPIC_DEFAULT_HAIKU_MODEL", arg: "haiku-model", required: false, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "ANTHROPIC_DEFAULT_SONNET_MODEL", arg: "sonnet-model", required: false, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "ANTHROPIC_DEFAULT_OPUS_MODEL", arg: "opus-model", required: false, secret: false, default: None, editable_default: false, from_name: false },
 ];
 
 pub static CODEX_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "base_url",                          arg: "base-url",                 required: true,  secret: false, default: None,             editable_default: false, from_name: false },
-    FieldDef { key: "openai_api_key",                    arg: "api-key",                  required: false, secret: true,  default: None,             editable_default: false, from_name: false },
-    FieldDef { key: "model",                             arg: "model",                    required: false, secret: false, default: None,             editable_default: false, from_name: false },
-    FieldDef { key: "model_reasoning_effort",            arg: "reasoning-effort",         required: false, secret: false, default: None,             editable_default: false, from_name: false },
-    FieldDef { key: "model_context_window",              arg: "model-context-window",     required: false, secret: false, default: Some("1000000"), editable_default: true, from_name: false },
-    FieldDef { key: "model_auto_compact_token_limit",    arg: "model-auto-compact-token-limit", required: false, secret: false, default: Some("900000"), editable_default: true, from_name: false },
-    FieldDef { key: "model_provider",                    arg: "",                         required: false, secret: false, default: None,             editable_default: false, from_name: true  },
-    FieldDef { key: "disable_response_storage",          arg: "",                         required: false, secret: false, default: Some("true"),      editable_default: false, from_name: false },
-    FieldDef { key: "requires_openai_auth",              arg: "",                         required: false, secret: false, default: Some("true"),      editable_default: false, from_name: false },
-    FieldDef { key: "wire_api",                          arg: "",                         required: false, secret: false, default: Some("responses"),  editable_default: false, from_name: false },
+    FieldDef {
+        key: "base_url", arg: "base-url", required: true, secret: false,
+        default: None, editable_default: false, from_name: false,
+    },
+    FieldDef {
+        key: "openai_api_key", arg: "api-key", required: false, secret: true,
+        default: None, editable_default: false, from_name: false,
+    },
+    FieldDef {
+        key: "model", arg: "model", required: false, secret: false,
+        default: None, editable_default: false, from_name: false,
+    },
+    FieldDef {
+        key: "model_reasoning_effort", arg: "reasoning-effort", required: false, secret: false,
+        default: None, editable_default: false, from_name: false,
+    },
+    FieldDef {
+        key: "model_context_window", arg: "model-context-window", required: false, secret: false,
+        default: Some(DEFAULT_MODEL_CONTEXT_WINDOW), editable_default: true, from_name: false,
+    },
+    FieldDef {
+        key: "model_auto_compact_token_limit", arg: "model-auto-compact-token-limit", required: false, secret: false,
+        default: Some(DEFAULT_MODEL_AUTO_COMPACT_TOKEN_LIMIT), editable_default: true, from_name: false,
+    },
+    FieldDef {
+        key: "model_provider", arg: "", required: false, secret: false,
+        default: None, editable_default: false, from_name: true,
+    },
+    FieldDef {
+        key: "disable_response_storage", arg: "", required: false, secret: false,
+        default: Some("true"), editable_default: false, from_name: false,
+    },
+    FieldDef {
+        key: "requires_openai_auth", arg: "", required: false, secret: false,
+        default: Some("true"), editable_default: false, from_name: false,
+    },
+    FieldDef {
+        key: "wire_api", arg: "", required: false, secret: false,
+        default: Some("responses"), editable_default: false, from_name: false,
+    },
 ];
 
 pub static GEMINI_FIELDS: &[FieldDef] = &[
-    FieldDef { key: "GOOGLE_GEMINI_BASE_URL", arg: "base-url", required: true,  secret: false, default: None, editable_default: false, from_name: false },
-    FieldDef { key: "GEMINI_API_KEY",         arg: "api-key",  required: false, secret: true,  default: None, editable_default: false, from_name: false },
-    FieldDef { key: "GEMINI_MODEL",           arg: "model",    required: false, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "GOOGLE_GEMINI_BASE_URL", arg: "base-url", required: true, secret: false, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "GEMINI_API_KEY", arg: "api-key", required: false, secret: true, default: None, editable_default: false, from_name: false },
+    FieldDef { key: "GEMINI_MODEL", arg: "model", required: false, secret: false, default: None, editable_default: false, from_name: false },
 ];
 
 pub fn fields_for(tool_name: &str) -> &'static [FieldDef] {
@@ -59,6 +94,46 @@ pub fn fields_for(tool_name: &str) -> &'static [FieldDef] {
         "gemini" => GEMINI_FIELDS,
         _        => panic!("unknown tool (programmer error): {}", tool_name),
     }
+}
+
+pub fn validate_provider_fields(
+    tool_name: &str,
+    values: &HashMap<String, String>,
+) -> Result<(), String> {
+    if tool_name != "codex" {
+        return Ok(());
+    }
+
+    let context_window = parse_positive_integer(
+        "model_context_window",
+        values
+            .get("model_context_window")
+            .map(String::as_str)
+            .unwrap_or(DEFAULT_MODEL_CONTEXT_WINDOW),
+    )?;
+    let auto_compact_limit = parse_positive_integer(
+        "model_auto_compact_token_limit",
+        values
+            .get("model_auto_compact_token_limit")
+            .map(String::as_str)
+            .unwrap_or(DEFAULT_MODEL_AUTO_COMPACT_TOKEN_LIMIT),
+    )?;
+    if auto_compact_limit >= context_window {
+        return Err(
+            "model_auto_compact_token_limit must be less than model_context_window".to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn parse_positive_integer(key: &str, value: &str) -> Result<i64, String> {
+    let parsed = value
+        .parse::<i64>()
+        .map_err(|_| format!("{key} must be a positive integer"))?;
+    if parsed <= 0 {
+        return Err(format!("{key} must be a positive integer"));
+    }
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -116,5 +191,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_validate_codex_context_limits() {
+        let values = HashMap::new();
+        assert!(validate_provider_fields("codex", &values).is_ok());
+
+        let values = [
+            ("model_context_window".to_string(), "0".to_string()),
+        ]
+        .into();
+        assert!(validate_provider_fields("codex", &values).is_err());
+
+        let values = [
+            ("model_context_window".to_string(), "900000".to_string()),
+            ("model_auto_compact_token_limit".to_string(), "900000".to_string()),
+        ]
+        .into();
+        assert!(validate_provider_fields("codex", &values).is_err());
     }
 }
