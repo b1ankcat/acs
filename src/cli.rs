@@ -45,6 +45,10 @@ pub struct ClaudeArgs {
     #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
     /// Remove a fallback URL (repeatable)
     #[arg(long, value_name = "URL")] pub remove_fallback_url: Vec<String>,
+    /// Store API key in system keyring
+    #[arg(long)] pub use_keyring: bool,
+    /// Store API key in plaintext (skip keyring)
+    #[arg(long)] pub no_keyring: bool,
 }
 
 #[derive(Args, Clone, Default)]
@@ -65,6 +69,10 @@ pub struct CodexArgs {
     #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
     /// Remove a fallback URL (repeatable)
     #[arg(long, value_name = "URL")] pub remove_fallback_url: Vec<String>,
+    /// Store API key in system keyring
+    #[arg(long)] pub use_keyring: bool,
+    /// Store API key in plaintext (skip keyring)
+    #[arg(long)] pub no_keyring: bool,
 }
 
 #[derive(Args, Clone, Default)]
@@ -79,6 +87,10 @@ pub struct GeminiArgs {
     #[arg(long, value_name = "URL")] pub add_fallback_url: Vec<String>,
     /// Remove a fallback URL (repeatable)
     #[arg(long, value_name = "URL")] pub remove_fallback_url: Vec<String>,
+    /// Store API key in system keyring
+    #[arg(long)] pub use_keyring: bool,
+    /// Store API key in plaintext (skip keyring)
+    #[arg(long)] pub no_keyring: bool,
 }
 
 // ── Unified ProviderArgs for main.rs → HashMap conversion ─────────────────
@@ -96,6 +108,8 @@ pub struct ProviderArgs {
     pub model_auto_compact_token_limit: Option<String>,
     pub add_fallback_url: Vec<String>,
     pub remove_fallback_url: Vec<String>,
+    pub use_keyring: bool,
+    pub no_keyring: bool,
 }
 
 impl From<ClaudeArgs> for ProviderArgs {
@@ -103,7 +117,8 @@ impl From<ClaudeArgs> for ProviderArgs {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model, subagent_model: a.subagent_model,
                haiku_model: a.haiku_model, sonnet_model: a.sonnet_model,
                opus_model: a.opus_model, reasoning_effort: None, model_context_window: None, model_auto_compact_token_limit: None,
-               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
+               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url,
+               use_keyring: a.use_keyring, no_keyring: a.no_keyring }
     }
 }
 impl From<CodexArgs> for ProviderArgs {
@@ -112,14 +127,16 @@ impl From<CodexArgs> for ProviderArgs {
                reasoning_effort: a.reasoning_effort, model_context_window: a.model_context_window, model_auto_compact_token_limit: a.model_auto_compact_token_limit,
                subagent_model: None,
                haiku_model: None, sonnet_model: None, opus_model: None,
-               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
+               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url,
+               use_keyring: a.use_keyring, no_keyring: a.no_keyring }
     }
 }
 impl From<GeminiArgs> for ProviderArgs {
     fn from(a: GeminiArgs) -> Self {
         Self { base_url: a.base_url, api_key: a.api_key, model: a.model,
                haiku_model: None, sonnet_model: None, opus_model: None, reasoning_effort: None, model_context_window: None, model_auto_compact_token_limit: None, subagent_model: None,
-               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url }
+               add_fallback_url: a.add_fallback_url, remove_fallback_url: a.remove_fallback_url,
+               use_keyring: a.use_keyring, no_keyring: a.no_keyring }
     }
 }
 

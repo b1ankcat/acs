@@ -7,6 +7,7 @@ mod errors;
 mod fields;
 mod import_;
 mod gemini;
+mod keyring;
 mod prompts;
 mod test_cmd;
 
@@ -140,11 +141,11 @@ fn handle_tool<T: ToolAction>(tool_name: &str, action: T) -> Result<(), AcsError
         ActionType::List => cmd_list(tool_name, cfg.get_tool(tool_name)),
         ActionType::Use { provider, yes } => cmd_use(tool_name, &mut cfg, provider.as_deref(), yes),
         ActionType::Add { name, fields, yes } => {
-            cmd_add(tool_name, &mut cfg, name.as_deref(), &provider_args_to_map(&fields), &fields.add_fallback_url, yes)
+            cmd_add(tool_name, &mut cfg, name.as_deref(), &provider_args_to_map(&fields), &fields.add_fallback_url, fields.use_keyring, fields.no_keyring, yes)
         }
         ActionType::Remove { provider, yes } => cmd_remove(tool_name, &mut cfg, provider.as_deref(), yes),
         ActionType::Config { provider, home, fields, rename, yes } => {
-            cmd_config(tool_name, &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields), rename.as_deref(), &fields.add_fallback_url, &fields.remove_fallback_url, yes)
+            cmd_config(tool_name, &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields), rename.as_deref(), &fields.add_fallback_url, &fields.remove_fallback_url, fields.use_keyring, fields.no_keyring, yes)
         }
         ActionType::Test => test_cmd::run_test(tool_name, &mut cfg),
         ActionType::Clear { .. } => unreachable!(),
@@ -348,10 +349,12 @@ fn cmd_add(
     name: Option<&str>,
     cli_args: &std::collections::HashMap<&str, &str>,
     fallback_urls: &[String],
+    use_keyring: bool,
+    no_keyring: bool,
     yes: bool,
 ) -> Result<(), AcsError> {
     let input = if let Some(n) = name {
-        prompts::build_add_provider_fields(tool_name, n, cli_args)
+        prompts::build_add_provider_fields(tool_name, n, cli_args, use_keyring, no_keyring)
             .map_err(|missing_arg| AcsError::from(InteractiveError::input(
                 format!("--{} is required for non-interactive add", missing_arg)
             )))?
@@ -360,7 +363,24 @@ fn cmd_add(
     };
 
     config::validate_provider_name(&input.name)?;
-    fields::validate_provider_fields(tool_name, &input.fields)
+
+    // Encode API key if present
+    let mut fields = input.fields.clone();
+    let api_key_field = match tool_name {
+        "claude" => "ANTHROPIC_AUTH_TOKEN",
+        "codex" => "openai_api_key",
+        "gemini" => "GEMINI_API_KEY",
+        _ => "",
+    };
+
+    if !api_key_field.is_empty() {
+        if let Some(api_key) = fields.get(api_key_field) {
+            let encoded = keyring::encode_api_key(tool_name, &input.name, api_key, input.use_keyring);
+            fields.insert(api_key_field.to_string(), encoded);
+        }
+    }
+
+    fields::validate_provider_fields(tool_name, &fields)
         .map_err(InteractiveError::input)?;
 
     let tool = cfg.get_tool_mut(tool_name);
@@ -370,7 +390,7 @@ fn cmd_add(
         if name.is_some() {
             println!("\n  Provider: {}", input.name);
             for f in fields::fields_for(tool_name) {
-                if let Some(val) = input.fields.get(f.key) {
+                if let Some(val) = fields.get(f.key) {
                     println!("  {}: {}", f.key, if f.secret { "****" } else { val.as_str() });
                 }
             }
@@ -386,7 +406,7 @@ fn cmd_add(
         // Non-interactive new provider: show summary and confirm
         println!("\n  Provider: {}", input.name);
         for f in fields::fields_for(tool_name) {
-            if let Some(val) = input.fields.get(f.key) {
+            if let Some(val) = fields.get(f.key) {
                 println!("  {}: {}", f.key, if f.secret { "****" } else { val.as_str() });
             }
         }
@@ -400,7 +420,7 @@ fn cmd_add(
     for u in fallback_urls {
         if !all_fallbacks.contains(u) { all_fallbacks.push(u.clone()); }
     }
-    let provider = config::Provider { fields: input.fields, fallback_urls: all_fallbacks };
+    let provider = config::Provider { fields, fallback_urls: all_fallbacks };
     tool.providers.insert(input.name.clone(), provider.clone());
 
     if was_new && tool.providers.len() == 1 {
@@ -461,6 +481,8 @@ fn cmd_config(
     rename: Option<&str>,
     add_fallback: &[String],
     remove_fallback: &[String],
+    use_keyring: bool,
+    no_keyring: bool,
     yes: bool,
 ) -> Result<(), AcsError> {
     let tool = cfg.get_tool_mut(tool_name);
@@ -490,9 +512,36 @@ fn cmd_config(
 
         let (home_opt, pending) = prompts::build_config_edits(tool_name, &p, &tool.home, new_home, cli_args);
         let mut updated_fields = p.fields.clone();
+
+        // Determine API key field name
+        let api_key_field = match tool_name {
+            "claude" => "ANTHROPIC_AUTH_TOKEN",
+            "codex" => "openai_api_key",
+            "gemini" => "GEMINI_API_KEY",
+            _ => "",
+        };
+
+        // Check if API key is being updated and needs encoding
+        let mut encode_api_key = false;
         for (key, _, new_value) in &pending {
+            if !api_key_field.is_empty() && key == api_key_field && !new_value.starts_with("keyring:") {
+                encode_api_key = true;
+            }
             updated_fields.insert(key.clone(), new_value.clone());
         }
+
+        // If updating API key, ask about keyring
+        if encode_api_key {
+            let use_kr = prompts::prompt_use_keyring(use_keyring, no_keyring)?;
+            if use_kr {
+                if let Some((_, _, api_key_value)) = pending.iter().find(|(k, _, _)| k == api_key_field) {
+                    let provider_name = name.clone();
+                    let encoded = keyring::encode_api_key(tool_name, &provider_name, api_key_value, true);
+                    updated_fields.insert(api_key_field.to_string(), encoded);
+                }
+            }
+        }
+
         fields::validate_provider_fields(tool_name, &updated_fields)
             .map_err(InteractiveError::input)?;
 
@@ -545,9 +594,10 @@ fn cmd_config(
         }
         let p = tool.providers.get_mut(&name)
             .expect("provider existence validated above");
-        for (key, _, new_val) in pending {
-            p.fields.insert(key, new_val);
-        }
+
+        // Use updated_fields which may contain encoded API key
+        p.fields = updated_fields;
+
         for url in add_fallback {
             if !p.fallback_urls.contains(url) {
                 p.fallback_urls.push(url.clone());
@@ -939,6 +989,8 @@ mod tests {
             None,
             &["https://backup.example.com".to_string()],
             &[],
+            false,
+            false,
             true,
         )
         .unwrap();
@@ -958,7 +1010,7 @@ mod tests {
         let mut cfg = config::AcsConfig::default();
         cfg.codex.home = "~/.codex".to_string();
         let args = [("base-url", "https://api.example.com")].into_iter().collect();
-        cmd_add("codex", &mut cfg, Some("prod"), &args, &[], true).unwrap();
+        cmd_add("codex", &mut cfg, Some("prod"), &args, &[], false, false, true).unwrap();
 
         let provider = &cfg.codex.providers["prod"];
         assert_eq!(provider.get("model_context_window"), Some("1000000"));
@@ -989,7 +1041,7 @@ mod tests {
         );
         let args = [("model-context-window", "0")].into_iter().collect();
 
-        assert!(cmd_config("codex", &mut cfg, Some("prod"), None, &args, None, &[], &[], true).is_err());
+        assert!(cmd_config("codex", &mut cfg, Some("prod"), None, &args, None, &[], &[], false, false, true).is_err());
         assert_eq!(cfg.codex.providers["prod"].get("model_context_window"), None);
     }
 }

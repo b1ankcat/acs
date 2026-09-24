@@ -69,7 +69,17 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
             continue;
         }
         if !val.is_empty() {
-            env_map.insert(key.clone(), val.clone());
+            // Decode API key if stored in keyring
+            let decoded_val = if key == "GEMINI_API_KEY" {
+                crate::keyring::decode_api_key(val)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Warning: failed to read API key from keyring: {}. Using value as-is.", e);
+                        val.clone()
+                    })
+            } else {
+                val.clone()
+            };
+            env_map.insert(key.clone(), decoded_val);
         }
     }
     write_env(home, &env_map)?;

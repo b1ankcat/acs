@@ -153,10 +153,17 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
 
     // Write auth.json — OPENAI_API_KEY lives here, never in config.toml
     if let Some(api_key) = provider.get("openai_api_key") {
+        // Decode API key if stored in keyring
+        let decoded_key = crate::keyring::decode_api_key(api_key)
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: failed to read API key from keyring: {}. Using value as-is.", e);
+                api_key.to_string()
+            });
+
         let auth_dir = PathBuf::from(expand_path(home)?);
         std::fs::create_dir_all(&auth_dir).map_err(|e| ConfigError::dir_create(&auth_dir, e))?;
         let auth = serde_json::json!({
-            "OPENAI_API_KEY": api_key
+            "OPENAI_API_KEY": decoded_key
         });
         let auth_path = auth_dir.join("auth.json");
         let content = serde_json::to_string_pretty(&auth)

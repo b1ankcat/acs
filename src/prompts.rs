@@ -12,6 +12,7 @@ pub struct AddProviderInput {
     pub name: String,
     pub fields: HashMap<String, String>,
     pub fallback_urls: Vec<String>,
+    pub use_keyring: bool,
 }
 
 fn input_required(prompt: &str) -> Result<String> {
@@ -71,12 +72,32 @@ pub fn is_secret_key(key: &str) -> bool {
         .any(|f| f.key == key && f.secret)
 }
 
+/// Ask user if they want to use keyring for API key storage
+pub fn prompt_use_keyring(use_keyring_flag: bool, no_keyring_flag: bool) -> Result<bool> {
+    if use_keyring_flag {
+        return Ok(true);
+    }
+    if no_keyring_flag {
+        return Ok(false);
+    }
+
+    // Check if keyring is available
+    if !crate::keyring::is_available() {
+        println!("System keyring is not available. API key will be stored in plaintext.");
+        return Ok(false);
+    }
+
+    confirm_required("Store API key securely in system keyring?")
+}
+
 /// Non-interactive add. `cli_args`: arg name → value (e.g. "base-url" → "https://...").
 /// Returns Err with the missing `--arg-name` if a required field is absent.
 pub fn build_add_provider_fields(
     tool_name: &str,
     name: &str,
     cli_args: &HashMap<&str, &str>,
+    use_keyring: bool,
+    no_keyring: bool,
 ) -> std::result::Result<AddProviderInput, &'static str> {
     let mut result = HashMap::new();
     for f in fields::fields_for(tool_name) {
@@ -90,7 +111,16 @@ pub fn build_add_provider_fields(
             return Err(f.arg);
         }
     }
-    Ok(AddProviderInput { name: name.to_string(), fields: result, fallback_urls: vec![] })
+
+    let use_kr = if use_keyring {
+        true
+    } else if no_keyring {
+        false
+    } else {
+        crate::keyring::is_available()
+    };
+
+    Ok(AddProviderInput { name: name.to_string(), fields: result, fallback_urls: vec![], use_keyring: use_kr })
 }
 
 fn is_base_url_key(key: &str) -> bool {
@@ -165,7 +195,10 @@ pub fn prompt_add_provider(tool_name: &str) -> Result<AddProviderInput> {
     if !confirm_required("Add this provider?")? {
         return Err(InteractiveError::Cancelled);
     }
-    Ok(AddProviderInput { name, fields: result, fallback_urls })
+
+    let use_keyring = prompt_use_keyring(false, false)?;
+
+    Ok(AddProviderInput { name, fields: result, fallback_urls, use_keyring })
 }
 
 pub fn prompt_select_provider(
@@ -347,7 +380,7 @@ mod tests {
     #[test]
     fn test_build_add_claude_basic() {
         let args = make_args(&[("base-url", "https://api.anthropic.com"), ("api-key", "sk-k"), ("model", "m")]);
-        let input = build_add_provider_fields("claude", "prod", &args).unwrap();
+        let input = build_add_provider_fields("claude", "prod", &args, false, false).unwrap();
         assert_eq!(input.fields["ANTHROPIC_BASE_URL"], "https://api.anthropic.com");
         assert_eq!(input.fields["ANTHROPIC_AUTH_TOKEN"], "sk-k");
         assert_eq!(input.fields["ANTHROPIC_MODEL"], "m");
@@ -359,7 +392,7 @@ mod tests {
             ("base-url", "https://api.anthropic.com"),
             ("haiku-model", "h"), ("sonnet-model", "s"), ("opus-model", "o"),
         ]);
-        let input = build_add_provider_fields("claude", "prod", &args).unwrap();
+        let input = build_add_provider_fields("claude", "prod", &args, false, false).unwrap();
         assert_eq!(input.fields["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "h");
         assert_eq!(input.fields["ANTHROPIC_DEFAULT_SONNET_MODEL"], "s");
         assert_eq!(input.fields["ANTHROPIC_DEFAULT_OPUS_MODEL"], "o");
@@ -368,7 +401,7 @@ mod tests {
     #[test]
     fn test_build_add_claude_missing_required() {
         let args = make_args(&[]);
-        let err = build_add_provider_fields("claude", "prod", &args).unwrap_err();
+        let err = build_add_provider_fields("claude", "prod", &args, false, false).unwrap_err();
         assert_eq!(err, "base-url");
     }
 
@@ -380,7 +413,7 @@ mod tests {
             ("model", "gpt-5.5"),
             ("reasoning-effort", "high"),
         ]);
-        let input = build_add_provider_fields("codex", "my-codex", &args).unwrap();
+        let input = build_add_provider_fields("codex", "my-codex", &args, false, false).unwrap();
         assert_eq!(input.fields["base_url"], "https://api.openai.com/v1");
         assert_eq!(input.fields["openai_api_key"], "sk-openai");
         assert_eq!(input.fields["model"], "gpt-5.5");
@@ -394,7 +427,7 @@ mod tests {
     #[test]
     fn test_build_add_codex_limits_can_override_defaults() {
         let args = make_args(&[("base-url", "https://api.openai.com/v1"), ("model-context-window", "123"), ("model-auto-compact-token-limit", "100")]);
-        let input = build_add_provider_fields("codex", "my-codex", &args).unwrap();
+        let input = build_add_provider_fields("codex", "my-codex", &args, false, false).unwrap();
         assert_eq!(input.fields["model_context_window"], "123");
         assert_eq!(input.fields["model_auto_compact_token_limit"], "100");
     }
@@ -406,7 +439,7 @@ mod tests {
             ("api-key", "g-key"),
             ("model", "gemini-2.5-pro"),
         ]);
-        let input = build_add_provider_fields("gemini", "g", &args).unwrap();
+        let input = build_add_provider_fields("gemini", "g", &args, false, false).unwrap();
         assert_eq!(input.fields["GOOGLE_GEMINI_BASE_URL"], "https://gemini.googleapis.com");
         assert_eq!(input.fields["GEMINI_API_KEY"], "g-key");
         assert_eq!(input.fields["GEMINI_MODEL"], "gemini-2.5-pro");
