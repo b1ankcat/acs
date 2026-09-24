@@ -11,6 +11,7 @@
 
 - 🔄 **Multi-tool support** — manages Claude Code, OpenAI Codex CLI, and Gemini CLI from one place
 - 📋 **Named providers** — store multiple API endpoints/keys per tool and switch between them instantly
+- 🔐 **Secure key storage** — optionally encrypt API keys in system keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 - 🌐 **Fallback URLs** — configure backup endpoints per provider; benchmark and switch with `test`
 - 🖥️ **Interactive-first CLI** — guided TUI prompts make configuration intuitive; pass `--flag` arguments for automation and CI/CD workflows
 - 💾 **Import / Export** — share provider configs across machines via TOML files
@@ -108,6 +109,8 @@ acs <TOOL> <COMMAND> [OPTIONS]
 | `--subagent-model` | ✅ | — | — |
 | `--add-fallback-url` | ✅ | ✅ | ✅ |
 | `--remove-fallback-url` | ✅ | ✅ | ✅ |
+| `--use-keyring` | ✅ | ✅ | ✅ |
+| `--no-keyring` | ✅ | ✅ | ✅ |
 
 ### Examples
 
@@ -157,7 +160,37 @@ acs export providers.toml
 
 # Import on another machine
 acs import providers.toml
+
+# Secure API key storage with system keyring
+acs claude add --name secure --use-keyring  # Encrypt key in keyring
+acs codex config prod --api-key sk-new... --use-keyring  # Update and encrypt
+acs gemini add --name plaintext --no-keyring  # Force plaintext storage
 ```
+
+#### API Key Security
+
+`acs` supports encrypting API keys in your system's native keyring:
+
+- **macOS**: Keychain
+- **Windows**: Credential Manager  
+- **Linux**: Secret Service (GNOME Keyring, KWallet)
+
+When adding or configuring a provider:
+
+```bash
+# Interactive mode: prompts whether to use keyring
+acs claude add
+
+# Force keyring encryption
+acs claude add --name prod --api-key sk-... --use-keyring
+
+# Force plaintext storage
+acs claude add --name dev --api-key sk-... --no-keyring
+```
+
+If keyring is unavailable, `acs` automatically falls back to plaintext storage with a warning.
+
+Encrypted keys are stored as `keyring:acs:tool:provider:api-key` references in `config.toml`. Plaintext keys remain unchanged.
 
 ---
 
@@ -165,7 +198,9 @@ acs import providers.toml
 
 Config is stored at `~/.config/acs/config.toml` (XDG-compliant). On first run, `acs` auto-imports credentials from the native tool config files (e.g. `~/.claude/`, `~/.codex/`).
 
-> ⚠️ Exported TOML files contain plaintext API keys — handle with care.
+API keys can be stored in plaintext or encrypted in the system keyring. Encrypted keys appear as `keyring:acs:tool:provider:api-key` references in `config.toml`.
+
+> ⚠️ Exported TOML files contain plaintext API keys — handle with care. Use `--use-keyring` for sensitive environments.
 
 ---
 

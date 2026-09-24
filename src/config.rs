@@ -261,8 +261,36 @@ pub fn ensure_tool_defaults(config: &mut AcsConfig) {
     }
 }
 
+/// Get active provider for a tool
 pub fn get_active_provider(tool: &ToolConfig) -> Option<&Provider> {
     tool.providers.get(&tool.active)
+}
+
+/// Add fallback URLs to a provider, avoiding duplicates
+pub fn add_fallback_urls(provider: &mut Provider, urls: &[String]) {
+    for url in urls {
+        if !provider.fallback_urls.contains(url) {
+            provider.fallback_urls.push(url.clone());
+        }
+    }
+}
+
+/// Remove fallback URLs from a provider
+pub fn remove_fallback_urls(provider: &mut Provider, urls: &[String]) {
+    for url in urls {
+        provider.fallback_urls.retain(|u| u != url);
+    }
+}
+
+/// Merge fallback URLs from multiple sources, avoiding duplicates
+pub fn merge_fallback_urls(existing: Vec<String>, new: &[String]) -> Vec<String> {
+    let mut result = existing;
+    for url in new {
+        if !result.contains(url) {
+            result.push(url.clone());
+        }
+    }
+    result
 }
 
 /// Reject provider names that are empty, contain path separators, traversal sequences, or control characters.

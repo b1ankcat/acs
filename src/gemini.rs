@@ -28,7 +28,7 @@ pub fn parse_env(content: &str) -> HashMap<String, String> {
 
 pub fn serialize_env(map: &HashMap<String, String>) -> String {
     let mut keys: Vec<_> = map.keys().collect();
-    keys.sort();
+    keys.sort_unstable();
     keys.iter().map(|k| format!("{k}={}\n", map[*k])).collect()
 }
 

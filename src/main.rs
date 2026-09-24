@@ -192,7 +192,7 @@ fn provider_args_to_map<'a>(f: &'a cli::ProviderArgs) -> std::collections::HashM
         ("model-auto-compact-token-limit", f.model_auto_compact_token_limit.as_deref()),
     ]
     .into_iter()
-    .filter_map(|(k, v)| v.map(|v| (k, v)))
+    .filter_map(|(k, v)| v.map(|val| (k, val)))
     .collect()
 }
 
@@ -242,7 +242,7 @@ fn cmd_list(tool_name: &str, tool: &config::ToolConfig) -> Result<(), AcsError> 
     }
 
     let mut names: Vec<&String> = tool.providers.keys().collect();
-    names.sort();
+    names.sort_unstable();
 
     for name in names {
         let provider = &tool.providers[name];
@@ -416,10 +416,7 @@ fn cmd_add(
     }
 
     let was_new = !tool.providers.contains_key(&input.name);
-    let mut all_fallbacks = input.fallback_urls;
-    for u in fallback_urls {
-        if !all_fallbacks.contains(u) { all_fallbacks.push(u.clone()); }
-    }
+    let all_fallbacks = config::merge_fallback_urls(input.fallback_urls, fallback_urls);
     let provider = config::Provider { fields, fallback_urls: all_fallbacks };
     tool.providers.insert(input.name.clone(), provider.clone());
 
@@ -598,14 +595,8 @@ fn cmd_config(
         // Use updated_fields which may contain encoded API key
         p.fields = updated_fields;
 
-        for url in add_fallback {
-            if !p.fallback_urls.contains(url) {
-                p.fallback_urls.push(url.clone());
-            }
-        }
-        for url in remove_fallback {
-            p.fallback_urls.retain(|u| u != url);
-        }
+        config::add_fallback_urls(p, add_fallback);
+        config::remove_fallback_urls(p, remove_fallback);
 
         if let Some(new_name) = rename {
             let p = tool.providers.remove(&name)
@@ -1043,5 +1034,29 @@ mod tests {
 
         assert!(cmd_config("codex", &mut cfg, Some("prod"), None, &args, None, &[], &[], false, false, true).is_err());
         assert_eq!(cfg.codex.providers["prod"].get("model_context_window"), None);
+    }
+
+    #[test]
+    fn test_fallback_url_merge() {
+        let existing = vec!["https://a.com".to_string(), "https://b.com".to_string()];
+        let new = vec!["https://b.com".to_string(), "https://c.com".to_string()];
+        let merged = config::merge_fallback_urls(existing, &new);
+        assert_eq!(merged, vec!["https://a.com", "https://b.com", "https://c.com"]);
+    }
+
+    #[test]
+    fn test_add_remove_fallback_urls() {
+        let mut provider = config::Provider {
+            fields: std::collections::HashMap::new(),
+            fallback_urls: vec!["https://a.com".to_string()],
+        };
+
+        config::add_fallback_urls(&mut provider, &["https://b.com".to_string(), "https://a.com".to_string()]);
+        assert_eq!(provider.fallback_urls.len(), 2);
+        assert!(provider.fallback_urls.contains(&"https://a.com".to_string()));
+        assert!(provider.fallback_urls.contains(&"https://b.com".to_string()));
+
+        config::remove_fallback_urls(&mut provider, &["https://a.com".to_string()]);
+        assert_eq!(provider.fallback_urls, vec!["https://b.com"]);
     }
 }

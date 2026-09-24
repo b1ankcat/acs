@@ -72,6 +72,10 @@ pub fn delete(username: &str) -> Result<(), KeyringError> {
 }
 
 /// Encode API key for storage: returns keyring reference or plaintext
+///
+/// If `use_keyring` is true, attempts to store the API key in the system keyring.
+/// On success, returns `keyring:<username>`. On failure, prints a warning and
+/// returns the plaintext API key.
 pub fn encode_api_key(tool: &str, provider: &str, api_key: &str, use_keyring: bool) -> String {
     if !use_keyring {
         return api_key.to_string();
@@ -89,6 +93,10 @@ pub fn encode_api_key(tool: &str, provider: &str, api_key: &str, use_keyring: bo
 }
 
 /// Decode API key: reads from keyring if prefixed, otherwise returns as-is
+///
+/// If the value starts with `keyring:`, extracts the username and reads the
+/// secret from the system keyring. Otherwise, treats it as plaintext and
+/// returns it unchanged.
 pub fn decode_api_key(value: &str) -> Result<String, KeyringError> {
     if let Some(username) = value.strip_prefix("keyring:") {
         try_get(username)
