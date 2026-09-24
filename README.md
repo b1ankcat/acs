@@ -12,7 +12,7 @@
 - 🔄 **Multi-tool support** — manages Claude Code, OpenAI Codex CLI, and Gemini CLI from one place
 - 📋 **Named providers** — store multiple API endpoints/keys per tool and switch between them instantly
 - 🌐 **Fallback URLs** — configure backup endpoints per provider; benchmark and switch with `test`
-- 🖥️ **Interactive or scriptable** — guided TUI prompts for humans, `--flag` overrides for CI/automation
+- 🖥️ **Interactive-first CLI** — guided TUI prompts make configuration intuitive; pass `--flag` arguments for automation and CI/CD workflows
 - 💾 **Import / Export** — share provider configs across machines via TOML files
 - 🧹 **Clear** — wipe local sessions, history, and caches for Claude & Codex with a single command
 - 🔍 **Status** — see the active provider for every tool at a glance
@@ -35,18 +35,37 @@ Download the latest release from the [Releases](../../releases) page.
 
 ## 🚀 Quick Start
 
+### Interactive Mode (Recommended)
+
+Simply run commands without arguments for guided prompts:
+
 ```bash
-# See what's active
+# Interactive: add a provider with step-by-step prompts
+acs claude add
+
+# Interactive: switch providers from a list
+acs claude use
+
+# See what's currently active
 acs status
-
-# Add a provider for Claude Code
-acs claude add --name work --base-url https://api.anthropic.com --api-key sk-ant-...
-
-# Switch to it
-acs claude use work
 
 # List all configured providers
 acs claude list
+```
+
+### Scriptable Mode (for Automation)
+
+Pass all arguments for non-interactive execution:
+
+```bash
+# Non-interactive: add a provider for automation/CI
+acs claude add --name work \
+  --base-url https://api.anthropic.com \
+  --api-key sk-ant-... \
+  -y
+
+# Non-interactive: switch to a specific provider
+acs claude use work -y
 ```
 
 ---
@@ -92,8 +111,20 @@ acs <TOOL> <COMMAND> [OPTIONS]
 
 ### Examples
 
+#### Interactive Usage
+
 ```bash
-# Non-interactive add (useful in CI)
+# Interactive: guided prompts for all fields
+acs claude add
+acs claude config
+acs claude use
+acs claude remove
+```
+
+#### Scriptable Usage (CI/CD)
+
+```bash
+# Non-interactive: all arguments provided
 acs claude add --name prod \
   --base-url https://api.anthropic.com \
   --api-key  sk-ant-... \

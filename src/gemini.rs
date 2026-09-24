@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use crate::config::{expand_path, Provider};
 
-pub fn env_path(home: &str) -> PathBuf {
-    PathBuf::from(expand_path(home)).join(".env")
+pub fn env_path(home: &str) -> Result<PathBuf, AcsError> {
+    Ok(PathBuf::from(expand_path(home)?).join(".env"))
 }
 
 pub fn parse_env(content: &str) -> HashMap<String, String> {
@@ -33,7 +33,7 @@ pub fn serialize_env(map: &HashMap<String, String>) -> String {
 }
 
 pub fn read_env(home: &str) -> Result<HashMap<String, String>, AcsError> {
-    let path = env_path(home);
+    let path = env_path(home)?;
     if !path.exists() {
         return Ok(HashMap::new());
     }
@@ -43,7 +43,7 @@ pub fn read_env(home: &str) -> Result<HashMap<String, String>, AcsError> {
 }
 
 pub fn write_env(home: &str, map: &HashMap<String, String>) -> Result<(), AcsError> {
-    let path = env_path(home);
+    let path = env_path(home)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| ConfigError::dir_create(parent, e))?;
@@ -74,7 +74,7 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
     }
     write_env(home, &env_map)?;
 
-    let sp = crate::config::settings_path(home);
+    let sp = crate::config::settings_path(home)?;
     let mut settings = crate::config::read_settings(home)?;
     let obj = settings
         .as_object_mut()

@@ -17,12 +17,12 @@ const CLEAR_CONTENT_DIRS: &[&str] = &[
     ".tmp",
 ];
 
-pub fn config_path(home: &str) -> PathBuf {
-    PathBuf::from(expand_path(home)).join("config.toml")
+pub fn config_path(home: &str) -> Result<PathBuf, AcsError> {
+    Ok(PathBuf::from(expand_path(home)?).join("config.toml"))
 }
 
 pub fn read_config(home: &str) -> Result<Value, AcsError> {
-    let path = config_path(home);
+    let path = config_path(home)?;
     if !path.exists() {
         return Ok(Value::Table(toml::Table::new()));
     }
@@ -33,7 +33,7 @@ pub fn read_config(home: &str) -> Result<Value, AcsError> {
 }
 
 pub fn write_config(home: &str, value: &Value) -> Result<(), AcsError> {
-    let path = config_path(home);
+    let path = config_path(home)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| ConfigError::dir_create(parent, e))?;
     }
@@ -44,7 +44,7 @@ pub fn write_config(home: &str, value: &Value) -> Result<(), AcsError> {
 }
 
 pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
-    let path = config_path(home);
+    let path = config_path(home)?;
     let context_window = parse_positive_limit(
         "model_context_window",
         provider
@@ -118,13 +118,13 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
 
     // [model_providers.<name>] section — base_url, requires_openai_auth, wire_api ONLY here
     let base_url = provider.get("base_url").ok_or_else(|| {
-        ConfigError::parse(config_path(home), "provider missing required field: base_url")
+        ConfigError::parse(config_path(home).unwrap_or_default(), "provider missing required field: base_url")
     })?;
     let provider_name = provider
         .get("model_provider")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            ConfigError::parse(config_path(home), "provider missing required field: model_provider")
+            ConfigError::parse(config_path(home).unwrap_or_default(), "provider missing required field: model_provider")
         })?;
     let requires_auth = provider
         .get("requires_openai_auth")
@@ -136,12 +136,12 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
         .entry("model_providers".to_string())
         .or_insert_with(|| Value::Table(toml::Table::new()));
     let mp_table = mp.as_table_mut()
-        .ok_or_else(|| ConfigError::parse(config_path(home), "model_providers is not a TOML table"))?;
+        .ok_or_else(|| ConfigError::parse(config_path(home).unwrap_or_default(), "model_providers is not a TOML table"))?;
     let provider_entry = mp_table
         .entry(provider_name.to_string())
         .or_insert_with(|| Value::Table(toml::Table::new()));
     let pt = provider_entry.as_table_mut()
-        .ok_or_else(|| ConfigError::parse(config_path(home), "model_providers entry is not a TOML table"))?;
+        .ok_or_else(|| ConfigError::parse(config_path(home).unwrap_or_default(), "model_providers entry is not a TOML table"))?;
     pt.insert("name".to_string(), Value::String(provider_name.to_string()));
     pt.insert("base_url".to_string(), Value::String(base_url.to_string()));
     pt.insert("requires_openai_auth".to_string(), Value::Boolean(requires_auth));
@@ -153,7 +153,7 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
 
     // Write auth.json — OPENAI_API_KEY lives here, never in config.toml
     if let Some(api_key) = provider.get("openai_api_key") {
-        let auth_dir = PathBuf::from(expand_path(home));
+        let auth_dir = PathBuf::from(expand_path(home)?);
         std::fs::create_dir_all(&auth_dir).map_err(|e| ConfigError::dir_create(&auth_dir, e))?;
         let auth = serde_json::json!({
             "OPENAI_API_KEY": api_key
@@ -188,7 +188,10 @@ fn parse_positive_limit(key: &str, value: &str, path: &std::path::Path) -> Resul
 }
 
 pub fn clear_targets(home: &str) -> Vec<ClearTarget> {
-    let tool_home = PathBuf::from(expand_path(home));
+    let tool_home = match expand_path(home) {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => return vec![],
+    };
     let mut targets = vec![ClearTarget::file_or_dir(tool_home.join("history.jsonl"))];
 
     targets.extend(
@@ -524,7 +527,7 @@ requires_openai_auth = true
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        let path = config_path("~/.codex");
+        let path = config_path("~/.codex").unwrap();
         assert!(path.to_str().unwrap().starts_with(dir.to_str().unwrap()));
         assert!(path.to_str().unwrap().ends_with(".codex/config.toml"));
     }

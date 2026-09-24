@@ -129,14 +129,14 @@ impl Provider {
     }
 }
 
-pub fn config_path() -> PathBuf {
-    home::home_dir()
-        .expect("could not determine home directory")
-        .join(".config/acs/config.toml")
+pub fn config_path() -> Result<PathBuf, AcsError> {
+    let home = home::home_dir()
+        .ok_or_else(|| ConfigError::home_dir())?;
+    Ok(home.join(".config/acs/config.toml"))
 }
 
 pub fn load_config() -> Result<AcsConfig, AcsError> {
-    let path = config_path();
+    let path = config_path()?;
     let content = std::fs::read_to_string(&path)
         .map_err(|e| ConfigError::load(&path, e))?;
     let config: AcsConfig = toml::from_str(&content)
@@ -157,7 +157,7 @@ fn set_permissions(path: &std::path::Path, mode: u32) -> Result<(), AcsError> {
 }
 
 pub fn save_config(config: &AcsConfig) -> Result<(), AcsError> {
-    let path = config_path();
+    let path = config_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| ConfigError::dir_create(parent, e))?;
@@ -173,30 +173,30 @@ pub fn save_config(config: &AcsConfig) -> Result<(), AcsError> {
     Ok(())
 }
 
-pub fn expand_path(path: &str) -> String {
+pub fn expand_path(path: &str) -> Result<String, AcsError> {
     let home = home::home_dir()
-        .expect("could not determine home directory")
+        .ok_or_else(|| ConfigError::home_dir())?
         .to_string_lossy()
         .into_owned();
     if let Some(rest) = path.strip_prefix("~/") {
-        home + "/" + rest
+        Ok(home + "/" + rest)
     } else if let Some(rest) = path.strip_prefix("$HOME/") {
-        home + "/" + rest
+        Ok(home + "/" + rest)
     } else if path == "~" || path == "$HOME" {
-        home
+        Ok(home)
     } else {
-        path.to_string()
+        Ok(path.to_string())
     }
 }
 
 /// Path to `settings.json` inside a tool's home directory.
-pub fn settings_path(home: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from(expand_path(home)).join("settings.json")
+pub fn settings_path(home: &str) -> Result<std::path::PathBuf, AcsError> {
+    Ok(std::path::PathBuf::from(expand_path(home)?).join("settings.json"))
 }
 
 /// Read `settings.json` as a JSON value; returns an empty object if the file doesn't exist.
 pub fn read_settings(home: &str) -> Result<serde_json::Value, AcsError> {
-    let path = settings_path(home);
+    let path = settings_path(home)?;
     if !path.exists() {
         return Ok(serde_json::Value::Object(serde_json::Map::new()));
     }
@@ -208,7 +208,7 @@ pub fn read_settings(home: &str) -> Result<serde_json::Value, AcsError> {
 
 /// Write a JSON value to `settings.json`, creating parent directories as needed.
 pub fn write_settings(home: &str, value: &serde_json::Value) -> Result<(), AcsError> {
-    let path = settings_path(home);
+    let path = settings_path(home)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| ConfigError::dir_create(parent, e))?;
     }
@@ -220,7 +220,7 @@ pub fn write_settings(home: &str, value: &serde_json::Value) -> Result<(), AcsEr
 
 pub fn auto_import_defaults(config: &mut AcsConfig) -> Result<(), AcsError> {
     let home_path = home::home_dir()
-        .expect("could not determine home directory");
+        .ok_or_else(|| ConfigError::home_dir())?;
     if home_path.as_os_str().is_empty() {
         return Ok(());
     }
@@ -330,7 +330,7 @@ mod tests {
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        let result = expand_path("~/projects/myapp");
+        let result = expand_path("~/projects/myapp").unwrap();
         assert!(result.starts_with(dir.to_str().unwrap()));
         assert!(result.ends_with("/projects/myapp"));
     }
@@ -340,7 +340,7 @@ mod tests {
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        let result = expand_path("$HOME/projects/myapp");
+        let result = expand_path("$HOME/projects/myapp").unwrap();
         assert!(result.starts_with(dir.to_str().unwrap()));
         assert!(result.ends_with("/projects/myapp"));
     }
@@ -351,7 +351,7 @@ mod tests {
         // so removing HOME alone no longer causes a panic on all platforms.
         // Just verify it returns a non-empty path when called normally.
         let _guard = home_lock();
-        let result = expand_path("/absolute/path");
+        let result = expand_path("/absolute/path").unwrap();
         assert_eq!(result, "/absolute/path");
     }
 
@@ -360,7 +360,7 @@ mod tests {
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        let path = config_path();
+        let path = config_path().unwrap();
         let s = path.to_str().unwrap();
         assert!(s.ends_with(".config/acs/config.toml"));
     }
@@ -864,14 +864,14 @@ wire_api = "responses"
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        assert_eq!(expand_path("~"), dir.to_str().unwrap());
+        assert_eq!(expand_path("~").unwrap(), dir.to_str().unwrap());
     }
 
     #[test]
     fn test_expand_path_plain() {
         let _guard = home_lock();
         env::set_var("HOME", "/home/user");
-        assert_eq!(expand_path("/absolute/path"), "/absolute/path");
+        assert_eq!(expand_path("/absolute/path").unwrap(), "/absolute/path");
     }
 
     #[test]
@@ -879,7 +879,7 @@ wire_api = "responses"
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        assert_eq!(expand_path("$HOME"), dir.to_str().unwrap());
+        assert_eq!(expand_path("$HOME").unwrap(), dir.to_str().unwrap());
     }
 
     #[test]
@@ -887,7 +887,7 @@ wire_api = "responses"
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        let result = expand_path("$HOME/projects/myapp");
+        let result = expand_path("$HOME/projects/myapp").unwrap();
         assert!(result.starts_with(dir.to_str().unwrap()));
         assert!(result.ends_with("/projects/myapp"));
     }
@@ -921,7 +921,7 @@ wire_api = "responses"
         let cfg = AcsConfig::default();
         save_config(&cfg).unwrap();
 
-        let path = config_path();
+        let path = config_path().unwrap();
         let meta = std::fs::metadata(&path).unwrap();
         #[cfg(unix)]
         {

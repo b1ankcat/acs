@@ -19,7 +19,7 @@ const CLEAR_CONTENT_DIRS: &[&str] = &[
 
 pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
     let mut value = crate::config::read_settings(home)?;
-    let sp = crate::config::settings_path(home);
+    let sp = crate::config::settings_path(home)?;
 
     let map = value
         .as_object_mut()
@@ -62,8 +62,14 @@ pub fn apply_provider(home: &str, provider: &Provider) -> Result<(), AcsError> {
 }
 
 pub fn clear_targets(home: &str) -> Vec<ClearTarget> {
-    let tool_home = PathBuf::from(expand_path(home));
-    let claude_json = PathBuf::from(expand_path("~/.claude.json"));
+    let tool_home = match expand_path(home) {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => return vec![],
+    };
+    let claude_json = match expand_path("~/.claude.json") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => return vec![],
+    };
     let mut targets = vec![
         ClearTarget::file_or_dir(claude_json),
         ClearTarget::file_or_dir(tool_home.join("history.jsonl")),
@@ -335,7 +341,7 @@ mod tests {
         let dir = setup_temp_home();
         let _guard = home_lock();
         env::set_var("HOME", dir.to_str().unwrap());
-        let path = crate::config::settings_path("~/.claude");
+        let path = crate::config::settings_path("~/.claude").unwrap();
         assert!(path.to_str().unwrap().starts_with(dir.to_str().unwrap()));
         assert!(path.to_str().unwrap().ends_with(".claude/settings.json"));
     }

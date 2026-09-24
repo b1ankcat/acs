@@ -21,6 +21,136 @@ use std::io::{self, Write};
 
 use crate::errors::{AcsError, InteractiveError, ProviderError};
 
+// Trait to unify action handling across tools
+trait ToolAction {
+    fn is_clear(&self) -> Option<bool>;
+    fn extract_action(&self) -> ActionType;
+}
+
+enum ActionType {
+    List,
+    Use { provider: Option<String>, yes: bool },
+    Add { name: Option<String>, fields: cli::ProviderArgs, yes: bool },
+    Remove { provider: Option<String>, yes: bool },
+    Config { provider: Option<String>, home: Option<String>, fields: cli::ProviderArgs, rename: Option<String>, yes: bool },
+    Test,
+    Clear { yes: bool },
+}
+
+impl ToolAction for ClaudeAction {
+    fn is_clear(&self) -> Option<bool> {
+        match self {
+            ClaudeAction::Clear { yes } => Some(*yes),
+            _ => None,
+        }
+    }
+
+    fn extract_action(&self) -> ActionType {
+        match self {
+            ClaudeAction::List => ActionType::List,
+            ClaudeAction::Use { provider, yes } => ActionType::Use { provider: provider.clone(), yes: *yes },
+            ClaudeAction::Add { name, fields, yes } => ActionType::Add {
+                name: name.clone(),
+                fields: fields.clone().into(),
+                yes: *yes
+            },
+            ClaudeAction::Remove { provider, yes } => ActionType::Remove { provider: provider.clone(), yes: *yes },
+            ClaudeAction::Config { provider, home, fields, rename, yes } => ActionType::Config {
+                provider: provider.clone(),
+                home: home.clone(),
+                fields: fields.clone().into(),
+                rename: rename.clone(),
+                yes: *yes
+            },
+            ClaudeAction::Test => ActionType::Test,
+            ClaudeAction::Clear { yes } => ActionType::Clear { yes: *yes },
+        }
+    }
+}
+
+impl ToolAction for CodexAction {
+    fn is_clear(&self) -> Option<bool> {
+        match self {
+            CodexAction::Clear { yes } => Some(*yes),
+            _ => None,
+        }
+    }
+
+    fn extract_action(&self) -> ActionType {
+        match self {
+            CodexAction::List => ActionType::List,
+            CodexAction::Use { provider, yes } => ActionType::Use { provider: provider.clone(), yes: *yes },
+            CodexAction::Add { name, fields, yes } => ActionType::Add {
+                name: name.clone(),
+                fields: fields.clone().into(),
+                yes: *yes
+            },
+            CodexAction::Remove { provider, yes } => ActionType::Remove { provider: provider.clone(), yes: *yes },
+            CodexAction::Config { provider, home, fields, rename, yes } => ActionType::Config {
+                provider: provider.clone(),
+                home: home.clone(),
+                fields: fields.clone().into(),
+                rename: rename.clone(),
+                yes: *yes
+            },
+            CodexAction::Test => ActionType::Test,
+            CodexAction::Clear { yes } => ActionType::Clear { yes: *yes },
+        }
+    }
+}
+
+impl ToolAction for GeminiAction {
+    fn is_clear(&self) -> Option<bool> {
+        None // Gemini doesn't support clear
+    }
+
+    fn extract_action(&self) -> ActionType {
+        match self {
+            GeminiAction::List => ActionType::List,
+            GeminiAction::Use { provider, yes } => ActionType::Use { provider: provider.clone(), yes: *yes },
+            GeminiAction::Add { name, fields, yes } => ActionType::Add {
+                name: name.clone(),
+                fields: fields.clone().into(),
+                yes: *yes
+            },
+            GeminiAction::Remove { provider, yes } => ActionType::Remove { provider: provider.clone(), yes: *yes },
+            GeminiAction::Config { provider, home, fields, rename, yes } => ActionType::Config {
+                provider: provider.clone(),
+                home: home.clone(),
+                fields: fields.clone().into(),
+                rename: rename.clone(),
+                yes: *yes
+            },
+            GeminiAction::Test => ActionType::Test,
+        }
+    }
+}
+
+// Generic handler for all tools
+fn handle_tool<T: ToolAction>(tool_name: &str, action: T) -> Result<(), AcsError> {
+    // Handle clear separately if the action is clear
+    if let Some(yes) = action.is_clear() {
+        let cfg = load_config_with_defaults()?;
+        return cmd_clear(tool_name, cfg.get_tool(tool_name), yes);
+    }
+
+    let mut cfg = load_config_with_defaults()?;
+
+    match action.extract_action() {
+        ActionType::List => cmd_list(tool_name, cfg.get_tool(tool_name)),
+        ActionType::Use { provider, yes } => cmd_use(tool_name, &mut cfg, provider.as_deref(), yes),
+        ActionType::Add { name, fields, yes } => {
+            cmd_add(tool_name, &mut cfg, name.as_deref(), &provider_args_to_map(&fields), &fields.add_fallback_url, yes)
+        }
+        ActionType::Remove { provider, yes } => cmd_remove(tool_name, &mut cfg, provider.as_deref(), yes),
+        ActionType::Config { provider, home, fields, rename, yes } => {
+            cmd_config(tool_name, &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields), rename.as_deref(), &fields.add_fallback_url, &fields.remove_fallback_url, yes)
+        }
+        ActionType::Test => test_cmd::run_test(tool_name, &mut cfg),
+        ActionType::Clear { .. } => unreachable!(),
+    }
+}
+
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
 
@@ -36,67 +166,15 @@ fn main() -> Result<()> {
 }
 
 fn handle_claude(action: ClaudeAction) -> Result<(), AcsError> {
-    if let ClaudeAction::Clear { yes } = action {
-        let cfg = load_config_with_defaults()?;
-        return cmd_clear("claude", cfg.get_tool("claude"), yes);
-    }
-    let mut cfg = load_config_with_defaults()?;
-    match action {
-        ClaudeAction::List                              => cmd_list("claude", cfg.get_tool("claude")),
-        ClaudeAction::Use    { provider, yes }         => cmd_use("claude", &mut cfg, provider.as_deref(), yes),
-        ClaudeAction::Add    { name, fields, yes }     => {
-            let pargs: cli::ProviderArgs = fields.into();
-            cmd_add("claude", &mut cfg, name.as_deref(), &provider_args_to_map(&pargs), &pargs.add_fallback_url, yes)
-        }
-        ClaudeAction::Remove { provider, yes }         => cmd_remove("claude", &mut cfg, provider.as_deref(), yes),
-        ClaudeAction::Config { provider, home, fields, rename, yes } => {
-            let pargs: cli::ProviderArgs = fields.into();
-            cmd_config("claude", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&pargs), rename.as_deref(), &pargs.add_fallback_url, &pargs.remove_fallback_url, yes)
-        }
-        ClaudeAction::Test => test_cmd::run_test("claude", &mut cfg),
-        ClaudeAction::Clear  { .. } => unreachable!(),
-    }
+    handle_tool("claude", action)
 }
 
 fn handle_codex(action: CodexAction) -> Result<(), AcsError> {
-    if let CodexAction::Clear { yes } = action {
-        let cfg = load_config_with_defaults()?;
-        return cmd_clear("codex", cfg.get_tool("codex"), yes);
-    }
-    let mut cfg = load_config_with_defaults()?;
-    match action {
-        CodexAction::List                              => cmd_list("codex", cfg.get_tool("codex")),
-        CodexAction::Use    { provider, yes }         => cmd_use("codex", &mut cfg, provider.as_deref(), yes),
-        CodexAction::Add    { name, fields, yes }     => {
-            let pargs: cli::ProviderArgs = fields.into();
-            cmd_add("codex", &mut cfg, name.as_deref(), &provider_args_to_map(&pargs), &pargs.add_fallback_url, yes)
-        }
-        CodexAction::Remove { provider, yes }         => cmd_remove("codex", &mut cfg, provider.as_deref(), yes),
-        CodexAction::Config { provider, home, fields, rename, yes } => {
-            let pargs: cli::ProviderArgs = fields.into();
-            cmd_config("codex", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&pargs), rename.as_deref(), &pargs.add_fallback_url, &pargs.remove_fallback_url, yes)
-        }
-        CodexAction::Test => test_cmd::run_test("codex", &mut cfg),
-        CodexAction::Clear  { .. } => unreachable!(),
-    }
+    handle_tool("codex", action)
 }
 
 fn handle_gemini(action: GeminiAction) -> Result<(), AcsError> {
-    let mut cfg = load_config_with_defaults()?;
-    match action {
-        GeminiAction::List                              => cmd_list("gemini", cfg.get_tool("gemini")),
-        GeminiAction::Use    { provider, yes }         => cmd_use("gemini", &mut cfg, provider.as_deref(), yes),
-        GeminiAction::Add    { name, fields, yes }     => {
-            let pargs: cli::ProviderArgs = fields.into();
-            cmd_add("gemini", &mut cfg, name.as_deref(), &provider_args_to_map(&pargs), &pargs.add_fallback_url, yes)
-        }
-        GeminiAction::Remove { provider, yes }         => cmd_remove("gemini", &mut cfg, provider.as_deref(), yes),
-        GeminiAction::Config { provider, home, fields, rename, yes } => {
-            let pargs: cli::ProviderArgs = fields.into();
-            cmd_config("gemini", &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&pargs), rename.as_deref(), &pargs.add_fallback_url, &pargs.remove_fallback_url, yes)
-        }
-        GeminiAction::Test => test_cmd::run_test("gemini", &mut cfg),
-    }
+    handle_tool("gemini", action)
 }
 
 fn provider_args_to_map<'a>(f: &'a cli::ProviderArgs) -> std::collections::HashMap<&'static str, &'a str> {

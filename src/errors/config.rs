@@ -11,6 +11,7 @@ pub enum ConfigError {
     DirCreate { path: PathBuf, source: io::Error },
     Permissions { path: PathBuf, source: io::Error },
     Remove { path: PathBuf, source: io::Error },
+    HomeDir,
 }
 
 impl ConfigError {
@@ -61,6 +62,10 @@ impl ConfigError {
             source,
         }
     }
+
+    pub fn home_dir() -> Self {
+        Self::HomeDir
+    }
 }
 
 impl fmt::Display for ConfigError {
@@ -90,6 +95,9 @@ impl fmt::Display for ConfigError {
             }
             Self::Remove { path, source } => {
                 write!(f, "failed to remove {}: {source}", path.display())
+            }
+            Self::HomeDir => {
+                write!(f, "could not determine home directory")
             }
         }
     }
