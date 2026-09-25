@@ -221,6 +221,29 @@ fn load_config_with_defaults() -> Result<config::AcsConfig, AcsError> {
     Ok(cfg)
 }
 
+/// Select a provider interactively or validate provided name
+fn select_provider(
+    tool_name: &str,
+    tool: &config::ToolConfig,
+    provider: Option<&str>,
+    action: &str,
+) -> Result<String, AcsError> {
+    if tool.providers.is_empty() {
+        return Err(ProviderError::no_providers(tool_name).into());
+    }
+
+    if let Some(p) = provider {
+        if !tool.providers.contains_key(p) {
+            return Err(ProviderError::not_found(p, tool_name).into());
+        }
+        Ok(p.to_string())
+    } else if tool.providers.len() == 1 {
+        Ok(tool.providers.keys().next().unwrap().clone())
+    } else {
+        Ok(prompts::prompt_select_provider(action, tool_name, &tool.providers, &tool.active)?)
+    }
+}
+
 fn apply_provider_for(
     tool_name: &str,
     home: &str,
@@ -345,21 +368,7 @@ fn confirm_clear_targets(
 
 fn cmd_use(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&str>, yes: bool) -> Result<(), AcsError> {
     let tool = cfg.get_tool(tool_name);
-
-    if tool.providers.is_empty() {
-        return Err(ProviderError::no_providers(tool_name).into());
-    }
-
-    let name = if let Some(p) = provider {
-        if !tool.providers.contains_key(p) {
-            return Err(ProviderError::not_found(p, tool_name).into());
-        }
-        p.to_string()
-    } else if tool.providers.len() == 1 {
-        tool.providers.keys().next().unwrap().clone()
-    } else {
-        prompts::prompt_select_provider("use", tool_name, &tool.providers, &tool.active)?
-    };
+    let name = select_provider(tool_name, tool, provider, "use")?;
 
     if name != tool.active {
         if !prompts::confirm(&format!("Switch {} to provider \"{}\"?", tool_name, name), yes)? {
@@ -490,6 +499,36 @@ fn cmd_remove(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&st
     Ok(())
 }
 
+/// Show config change summary
+fn show_config_summary(
+    tool: &config::ToolConfig,
+    home_opt: &Option<String>,
+    pending: &[(String, String, String)],
+    add_fallback: &[String],
+    remove_fallback: &[String],
+    rename: Option<&str>,
+    name: &str,
+) {
+    if let Some(ref h) = home_opt {
+        println!("  Home directory: {} -> {}", tool.home, h);
+    }
+    for (key, old, new) in pending {
+        let s = prompts::is_secret_key(key);
+        let old_d = if s && !old.is_empty() { "****" } else { old.as_str() };
+        let new_d = if s && !new.is_empty() { "****" } else { new.as_str() };
+        println!("  {}: {} -> {}", key, old_d, new_d);
+    }
+    for url in add_fallback {
+        println!("  + fallback: {}", url);
+    }
+    for url in remove_fallback {
+        println!("  - fallback: {}", url);
+    }
+    if let Some(new_name) = rename {
+        println!("  rename: {} -> {}", name, new_name);
+    }
+}
+
 fn cmd_config(
     tool_name: &str,
     cfg: &mut config::AcsConfig,
@@ -505,18 +544,11 @@ fn cmd_config(
 ) -> Result<(), AcsError> {
     let tool = cfg.get_tool_mut(tool_name);
 
-    if tool.providers.is_empty() {
-        return Err(ProviderError::no_providers(tool_name).into());
-    }
-
-    let name = if let Some(p) = provider {
-        if !tool.providers.contains_key(p) {
-            return Err(ProviderError::not_found(p, tool_name).into());
-        }
-        p.to_string()
-    } else {
+    let name = if provider.is_none() {
         cmd_list(tool_name, tool)?;
         prompts::prompt_select_provider("config", tool_name, &tool.providers, &tool.active)?
+    } else {
+        select_provider(tool_name, tool, provider, "config")?
     };
 
     let is_active = name == tool.active;
@@ -572,24 +604,7 @@ fn cmd_config(
         }
 
         // Show summary
-        if let Some(ref h) = home_opt {
-            println!("  Home directory: {} -> {}", tool.home, h);
-        }
-        for (key, old, new) in &pending {
-            let s = prompts::is_secret_key(key);
-            let old_d = if s && !old.is_empty() { "****" } else { old.as_str() };
-            let new_d = if s && !new.is_empty() { "****" } else { new.as_str() };
-            println!("  {}: {} -> {}", key, old_d, new_d);
-        }
-        for url in add_fallback {
-            println!("  + fallback: {}", url);
-        }
-        for url in remove_fallback {
-            println!("  - fallback: {}", url);
-        }
-        if let Some(new_name) = rename {
-            println!("  rename: {} -> {}", name, new_name);
-        }
+        show_config_summary(tool, &home_opt, &pending, add_fallback, remove_fallback, rename, &name);
 
         if !prompts::confirm("Apply these changes?", yes)? {
             println!("Cancelled.");
