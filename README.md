@@ -17,7 +17,6 @@
 - 💾 **Import / Export** — share provider configs across machines via TOML files
 - 🧹 **Clear** — wipe local sessions, history, and caches for Claude & Codex with a single command
 - 🔍 **Status** — see the active provider for every tool at a glance
-- ⚡ **Auto-completions** — shell completions automatically installed on first run (bash/zsh/fish/powershell/elvish)
 
 ---
 
@@ -33,16 +32,7 @@ cargo install --path .
 
 Download the latest release from the [Releases](../../releases) page.
 
-### Shell Completions
-
-**Completions are installed automatically!** Just run `acs` once (e.g., `acs -h`) and completions will be set up for your shell. Restart your shell or source the completion file to enable tab completion.
-
-Supported shells:
-- **Bash**: `~/.local/share/bash-completion/completions/acs`
-- **Zsh**: `~/.local/share/zsh/site-functions/_acs` (auto-configured in `~/.zshrc`)
-- **Fish**: `~/.config/fish/completions/acs.fish`
-- **PowerShell**: `~/.config/powershell/acs_completion.ps1`
-- **Elvish**: `~/.config/elvish/lib/acs_completion.elv`
+> Shell completions are auto-installed on first run — just use `acs` and restart your shell.
 
 ---
 
@@ -213,38 +203,6 @@ Config is stored at `~/.config/acs/config.toml` (XDG-compliant). On first run, `
 API keys can be stored in plaintext or encrypted in the system keyring. Encrypted keys appear as `keyring:acs:tool:provider:api-key` references in `config.toml`.
 
 > ⚠️ Exported TOML files contain plaintext API keys — handle with care. Use `--use-keyring` for sensitive environments.
-
----
-
-## 🏗️ Architecture & Code Quality
-
-### Modular Design
-
-The codebase is organized into focused modules for maintainability:
-
-- **`provider`** — Unified provider management logic across tools
-- **`completions`** — Automatic shell completion setup
-- **`config`** — Configuration file handling and validation
-- **`keyring`** — Secure API key encryption
-- **`prompts`** — Interactive TUI components
-- **`fields`** — Provider field validation and defaults
-
-### Code Quality Metrics
-
-- **156 tests** — Comprehensive test coverage
-- **Zero compiler warnings** — Clean builds
-- **5,446 lines of code** — Well-structured and documented
-- **Parameter optimization** — Functions use structs instead of long parameter lists
-
-### Recent Improvements
-
-- ✅ Extracted common provider logic to reduce duplication
-- ✅ Auto-installation of shell completions on first run
-- ✅ Function parameter refactoring (8→3, 11→3 params)
-- ✅ Removed all compiler warnings
-- ✅ Enhanced error handling and validation
-
-See [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) for detailed information.
 
 ---
 
