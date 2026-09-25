@@ -2,6 +2,7 @@ mod claude;
 mod clear;
 mod cli;
 mod codex;
+mod completions;
 mod config;
 mod errors;
 mod fields;
@@ -173,6 +174,9 @@ fn handle_tool<T: ToolAction>(tool_name: &str, action: T) -> Result<(), AcsError
 }
 
 fn main() -> Result<()> {
+    // Auto-install shell completions on first run (silently fail if error)
+    let _ = completions::ensure_completions_installed();
+
     let cli = cli::Cli::parse();
 
     match cli.command {
