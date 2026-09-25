@@ -61,6 +61,7 @@ pub fn try_get(username: &str) -> Result<String, KeyringError> {
 }
 
 /// Delete a secret from the system keyring
+#[allow(dead_code)]
 pub fn delete(username: &str) -> Result<(), KeyringError> {
     let entry = Entry::new(SERVICE_NAME, username)
         .map_err(|e| KeyringError::Unavailable(e.to_string()))?;

@@ -1,4 +1,4 @@
-use crate::config::{self, AcsConfig, Provider, ToolConfig};
+use crate::config::{self, AcsConfig, Provider};
 use crate::errors::{AcsError, ProviderError};
 use crate::keyring;
 use std::collections::HashMap;

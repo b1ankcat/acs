@@ -37,6 +37,7 @@ enum ActionType {
     Remove { provider: Option<String>, yes: bool },
     Config { provider: Option<String>, home: Option<String>, fields: cli::ProviderArgs, rename: Option<String>, yes: bool },
     Test,
+    #[allow(dead_code)]
     Clear { yes: bool },
 }
 
