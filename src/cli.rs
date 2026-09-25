@@ -1,5 +1,4 @@
 use clap::{Args, Parser, Subcommand};
-use clap_complete::Shell;
 
 #[derive(Parser)]
 #[command(name = "acs", version, about = "AI CLI Switch — switch between Claude Code, Codex CLI, and Gemini CLI configurations")]
@@ -22,12 +21,6 @@ pub enum Command {
     Import { path: String, #[arg(long)] force: bool },
     /// Export current configuration to a TOML file
     Export { path: String },
-    /// Generate shell completions
-    Completions {
-        /// Shell to generate completions for
-        #[arg(value_enum)]
-        shell: Shell,
-    },
 }
 
 // ── Per-tool field args ────────────────────────────────────────────────────

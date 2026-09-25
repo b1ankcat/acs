@@ -16,8 +16,7 @@ mod test_cmd;
 pub(crate) static HOME_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use anyhow::Result;
-use clap::{Parser, CommandFactory};
-use clap_complete::generate;
+use clap::Parser;
 use cli::{ClaudeAction, CodexAction, Command, GeminiAction};
 use colored::*;
 use std::collections::HashMap;
@@ -165,10 +164,6 @@ fn main() -> Result<()> {
         Command::Status => cmd_status()?,
         Command::Import { path, force } => cmd_import(&path, force)?,
         Command::Export { path } => cmd_export(&path)?,
-        Command::Completions { shell } => {
-            let mut cmd = cli::Cli::command();
-            generate(shell, &mut cmd, "acs", &mut io::stdout());
-        }
     }
     Ok(())
 }
