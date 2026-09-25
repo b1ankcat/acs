@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand, CommandFactory};
+use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
 
 #[derive(Parser)]

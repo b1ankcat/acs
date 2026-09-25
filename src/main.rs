@@ -20,6 +20,7 @@ use clap::{Parser, CommandFactory};
 use clap_complete::generate;
 use cli::{ClaudeAction, CodexAction, Command, GeminiAction};
 use colored::*;
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 use crate::errors::{AcsError, InteractiveError, ProviderError};
@@ -233,6 +234,32 @@ fn apply_provider_for(
     }
 }
 
+/// Get API key field name for a tool
+fn api_key_field_for(tool_name: &str) -> &'static str {
+    match tool_name {
+        "claude" => "ANTHROPIC_AUTH_TOKEN",
+        "codex" => "openai_api_key",
+        "gemini" => "GEMINI_API_KEY",
+        _ => "",
+    }
+}
+
+/// Encode API key in fields if present
+fn encode_api_key_in_fields(
+    tool_name: &str,
+    provider_name: &str,
+    fields: &mut HashMap<String, String>,
+    use_keyring: bool,
+) {
+    let key_field = api_key_field_for(tool_name);
+    if !key_field.is_empty() {
+        if let Some(api_key) = fields.get(key_field) {
+            let encoded = keyring::encode_api_key(tool_name, provider_name, api_key, use_keyring);
+            fields.insert(key_field.to_string(), encoded);
+        }
+    }
+}
+
 fn clear_targets_for(tool_name: &str, home: &str) -> Vec<clear::ClearTarget> {
     match tool_name {
         "claude" => claude::clear_targets(home),
@@ -317,7 +344,7 @@ fn confirm_clear_targets(
 }
 
 fn cmd_use(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&str>, yes: bool) -> Result<(), AcsError> {
-    let tool = cfg.get_tool_mut(tool_name);
+    let tool = cfg.get_tool(tool_name);
 
     if tool.providers.is_empty() {
         return Err(ProviderError::no_providers(tool_name).into());
@@ -341,9 +368,8 @@ fn cmd_use(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&str>,
         }
     }
 
-    tool.active = name.clone();
-    apply_provider_for(tool_name, &tool.home, tool.providers.get(&name)
-        .ok_or_else(|| ProviderError::not_found(&name, tool_name))?)?;
+    let provider_obj = provider::set_active(tool_name, cfg, &name)?;
+    apply_provider_for(tool_name, &cfg.get_tool(tool_name).home, &provider_obj)?;
     config::save_config(cfg)?;
     println!("Switched {} to provider \"{}\".", tool_name, name);
     Ok(())
@@ -372,66 +398,57 @@ fn cmd_add(
 
     // Encode API key if present
     let mut fields = input.fields.clone();
-    let api_key_field = match tool_name {
-        "claude" => "ANTHROPIC_AUTH_TOKEN",
-        "codex" => "openai_api_key",
-        "gemini" => "GEMINI_API_KEY",
-        _ => "",
-    };
-
-    if !api_key_field.is_empty() {
-        if let Some(api_key) = fields.get(api_key_field) {
-            let encoded = keyring::encode_api_key(tool_name, &input.name, api_key, input.use_keyring);
-            fields.insert(api_key_field.to_string(), encoded);
-        }
-    }
+    encode_api_key_in_fields(tool_name, &input.name, &mut fields, input.use_keyring);
 
     fields::validate_provider_fields(tool_name, &fields)
         .map_err(InteractiveError::input)?;
 
-    let tool = cfg.get_tool_mut(tool_name);
+    let tool = cfg.get_tool(tool_name);
+    let exists = tool.providers.contains_key(&input.name);
 
-    if tool.providers.contains_key(&input.name) {
-        // Show what will be written before asking to overwrite
-        if name.is_some() {
-            println!("\n  Provider: {}", input.name);
-            for f in fields::fields_for(tool_name) {
-                if let Some(val) = fields.get(f.key) {
-                    println!("  {}: {}", f.key, if f.secret { "****" } else { val.as_str() });
-                }
-            }
-        }
-        let overwrite = prompts::confirm(
-            &format!("Provider \"{}\" already exists for {}. Overwrite?", input.name, tool_name),
-            yes,
-        )?;
-        if !overwrite {
-            return Err(InteractiveError::Cancelled.into());
-        }
-    } else if name.is_some() {
-        // Non-interactive new provider: show summary and confirm
+    // Show preview and confirm
+    if name.is_some() {
         println!("\n  Provider: {}", input.name);
         for f in fields::fields_for(tool_name) {
             if let Some(val) = fields.get(f.key) {
                 println!("  {}: {}", f.key, if f.secret { "****" } else { val.as_str() });
             }
         }
-        if !prompts::confirm("Add this provider?", yes)? {
+        let msg = if exists {
+            format!("Provider \"{}\" exists. Overwrite?", input.name)
+        } else {
+            "Add this provider?".to_string()
+        };
+        if !prompts::confirm(&msg, yes)? {
             return Err(InteractiveError::Cancelled.into());
         }
     }
 
-    let was_new = !tool.providers.contains_key(&input.name);
-    let all_fallbacks = config::merge_fallback_urls(input.fallback_urls, fallback_urls);
-    let provider = config::Provider { fields, fallback_urls: all_fallbacks };
-    tool.providers.insert(input.name.clone(), provider.clone());
+    // Convert fields to HashMap<&str, &str> for provider module
+    let fields_map: std::collections::HashMap<&str, &str> = fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
 
-    if was_new && tool.providers.len() == 1 {
-        tool.active = input.name.clone();
-        apply_provider_for(tool_name, &tool.home, &provider)?;
-    } else if !was_new && tool.active == input.name {
-        // Overwriting the active provider — propagate new fields to the tool's native config.
-        apply_provider_for(tool_name, &tool.home, &provider)?;
+    let all_fallbacks = config::merge_fallback_urls(input.fallback_urls, fallback_urls);
+    let (provider_obj, was_new) = provider::add_or_update(
+        tool_name,
+        cfg,
+        &input.name,
+        &fields_map,
+        &all_fallbacks,
+        use_keyring,
+        no_keyring,
+    )?;
+
+    // Apply to native config if first provider or updating active
+    let tool = cfg.get_tool(tool_name);
+    let should_apply = (was_new && tool.providers.len() == 1) || tool.active == input.name;
+    let home = tool.home.clone();
+
+    if should_apply {
+        cfg.get_tool_mut(tool_name).active = input.name.clone();
+        apply_provider_for(tool_name, &home, &provider_obj)?;
     }
 
     config::save_config(cfg)?;
@@ -440,7 +457,7 @@ fn cmd_add(
 }
 
 fn cmd_remove(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&str>, yes: bool) -> Result<(), AcsError> {
-    let tool = cfg.get_tool_mut(tool_name);
+    let tool = cfg.get_tool(tool_name);
 
     let removable: Vec<String> = tool
         .providers
@@ -467,9 +484,7 @@ fn cmd_remove(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&st
         return Ok(());
     }
 
-    tool.providers.remove(&name)
-        .ok_or_else(|| ProviderError::not_found(&name, tool_name))?;
-
+    provider::remove(tool_name, cfg, &name)?;
     config::save_config(cfg)?;
     println!("Removed provider \"{}\" from {}.", name, tool_name);
     Ok(())
@@ -516,32 +531,22 @@ fn cmd_config(
         let (home_opt, pending) = prompts::build_config_edits(tool_name, &p, &tool.home, new_home, cli_args);
         let mut updated_fields = p.fields.clone();
 
-        // Determine API key field name
-        let api_key_field = match tool_name {
-            "claude" => "ANTHROPIC_AUTH_TOKEN",
-            "codex" => "openai_api_key",
-            "gemini" => "GEMINI_API_KEY",
-            _ => "",
-        };
+        // Apply pending changes
+        let api_key_field = api_key_field_for(tool_name);
+        let mut api_key_updated = false;
 
-        // Check if API key is being updated and needs encoding
-        let mut encode_api_key = false;
         for (key, _, new_value) in &pending {
             if !api_key_field.is_empty() && key == api_key_field && !new_value.starts_with("keyring:") {
-                encode_api_key = true;
+                api_key_updated = true;
             }
             updated_fields.insert(key.clone(), new_value.clone());
         }
 
-        // If updating API key, ask about keyring
-        if encode_api_key {
+        // Encode API key if updated
+        if api_key_updated {
             let use_kr = prompts::prompt_use_keyring(use_keyring, no_keyring)?;
             if use_kr {
-                if let Some((_, _, api_key_value)) = pending.iter().find(|(k, _, _)| k == api_key_field) {
-                    let provider_name = name.clone();
-                    let encoded = keyring::encode_api_key(tool_name, &provider_name, api_key_value, true);
-                    updated_fields.insert(api_key_field.to_string(), encoded);
-                }
+                encode_api_key_in_fields(tool_name, &name, &mut updated_fields, true);
             }
         }
 
