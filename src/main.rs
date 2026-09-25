@@ -144,11 +144,28 @@ fn handle_tool<T: ToolAction>(tool_name: &str, action: T) -> Result<(), AcsError
         ActionType::List => cmd_list(tool_name, cfg.get_tool(tool_name)),
         ActionType::Use { provider, yes } => cmd_use(tool_name, &mut cfg, provider.as_deref(), yes),
         ActionType::Add { name, fields, yes } => {
-            cmd_add(tool_name, &mut cfg, name.as_deref(), &provider_args_to_map(&fields), &fields.add_fallback_url, fields.use_keyring, fields.no_keyring, yes)
+            cmd_add(tool_name, &mut cfg, AddProviderParams {
+                name: name.as_deref(),
+                cli_args: &provider_args_to_map(&fields),
+                fallback_urls: &fields.add_fallback_url,
+                use_keyring: fields.use_keyring,
+                no_keyring: fields.no_keyring,
+                yes,
+            })
         }
         ActionType::Remove { provider, yes } => cmd_remove(tool_name, &mut cfg, provider.as_deref(), yes),
         ActionType::Config { provider, home, fields, rename, yes } => {
-            cmd_config(tool_name, &mut cfg, provider.as_deref(), home.as_deref(), &provider_args_to_map(&fields), rename.as_deref(), &fields.add_fallback_url, &fields.remove_fallback_url, fields.use_keyring, fields.no_keyring, yes)
+            cmd_config(tool_name, &mut cfg, ConfigProviderParams {
+                provider: provider.as_deref(),
+                new_home: home.as_deref(),
+                cli_args: &provider_args_to_map(&fields),
+                rename: rename.as_deref(),
+                add_fallback: &fields.add_fallback_url,
+                remove_fallback: &fields.remove_fallback_url,
+                use_keyring: fields.use_keyring,
+                no_keyring: fields.no_keyring,
+                yes,
+            })
         }
         ActionType::Test => test_cmd::run_test(tool_name, &mut cfg),
         ActionType::Clear { .. } => unreachable!(),
@@ -380,18 +397,23 @@ fn cmd_use(tool_name: &str, cfg: &mut config::AcsConfig, provider: Option<&str>,
     Ok(())
 }
 
-fn cmd_add(
-    tool_name: &str,
-    cfg: &mut config::AcsConfig,
-    name: Option<&str>,
-    cli_args: &std::collections::HashMap<&str, &str>,
-    fallback_urls: &[String],
+/// Parameters for adding a provider
+struct AddProviderParams<'a> {
+    name: Option<&'a str>,
+    cli_args: &'a HashMap<&'a str, &'a str>,
+    fallback_urls: &'a [String],
     use_keyring: bool,
     no_keyring: bool,
     yes: bool,
+}
+
+fn cmd_add(
+    tool_name: &str,
+    cfg: &mut config::AcsConfig,
+    params: AddProviderParams,
 ) -> Result<(), AcsError> {
-    let input = if let Some(n) = name {
-        prompts::build_add_provider_fields(tool_name, n, cli_args, use_keyring, no_keyring)
+    let input = if let Some(n) = params.name {
+        prompts::build_add_provider_fields(tool_name, n, params.cli_args, params.use_keyring, params.no_keyring)
             .map_err(|missing_arg| AcsError::from(InteractiveError::input(
                 format!("--{} is required for non-interactive add", missing_arg)
             )))?
@@ -412,7 +434,7 @@ fn cmd_add(
     let exists = tool.providers.contains_key(&input.name);
 
     // Show preview and confirm
-    if name.is_some() {
+    if params.name.is_some() {
         println!("\n  Provider: {}", input.name);
         for f in fields::fields_for(tool_name) {
             if let Some(val) = fields.get(f.key) {
@@ -424,7 +446,7 @@ fn cmd_add(
         } else {
             "Add this provider?".to_string()
         };
-        if !prompts::confirm(&msg, yes)? {
+        if !prompts::confirm(&msg, params.yes)? {
             return Err(InteractiveError::Cancelled.into());
         }
     }
@@ -435,15 +457,15 @@ fn cmd_add(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let all_fallbacks = config::merge_fallback_urls(input.fallback_urls, fallback_urls);
+    let all_fallbacks = config::merge_fallback_urls(input.fallback_urls, params.fallback_urls);
     let (provider_obj, was_new) = provider::add_or_update(
         tool_name,
         cfg,
         &input.name,
         &fields_map,
         &all_fallbacks,
-        use_keyring,
-        no_keyring,
+        params.use_keyring,
+        params.no_keyring,
     )?;
 
     // Apply to native config if first provider or updating active
@@ -525,38 +547,43 @@ fn show_config_summary(
     }
 }
 
-fn cmd_config(
-    tool_name: &str,
-    cfg: &mut config::AcsConfig,
-    provider: Option<&str>,
-    new_home: Option<&str>,
-    cli_args: &std::collections::HashMap<&str, &str>,
-    rename: Option<&str>,
-    add_fallback: &[String],
-    remove_fallback: &[String],
+/// Parameters for configuring a provider
+struct ConfigProviderParams<'a> {
+    provider: Option<&'a str>,
+    new_home: Option<&'a str>,
+    cli_args: &'a HashMap<&'a str, &'a str>,
+    rename: Option<&'a str>,
+    add_fallback: &'a [String],
+    remove_fallback: &'a [String],
     use_keyring: bool,
     no_keyring: bool,
     yes: bool,
+}
+
+fn cmd_config(
+    tool_name: &str,
+    cfg: &mut config::AcsConfig,
+    params: ConfigProviderParams,
 ) -> Result<(), AcsError> {
     let tool = cfg.get_tool_mut(tool_name);
 
-    let name = if provider.is_none() {
+    let name = if params.provider.is_none() {
         cmd_list(tool_name, tool)?;
         prompts::prompt_select_provider("config", tool_name, &tool.providers, &tool.active)?
     } else {
-        select_provider(tool_name, tool, provider, "config")?
+        select_provider(tool_name, tool, params.provider, "config")?
     };
 
     let is_active = name == tool.active;
-    let non_interactive = new_home.is_some() || !cli_args.is_empty() || rename.is_some()
-        || !add_fallback.is_empty() || !remove_fallback.is_empty();
+    let non_interactive = params.new_home.is_some() || !params.cli_args.is_empty() || params.rename.is_some()
+        || !params.add_fallback.is_empty() || !params.remove_fallback.is_empty();
 
     if non_interactive {
         let p = tool.providers.get(&name)
             .ok_or_else(|| ProviderError::not_found(&name, tool_name))?
             .clone();
 
-        let (home_opt, pending) = prompts::build_config_edits(tool_name, &p, &tool.home, new_home, cli_args);
+        let (home_opt, pending) = prompts::build_config_edits(tool_name, &p, &tool.home, params.new_home, params.cli_args);
         let mut updated_fields = p.fields.clone();
 
         // Apply pending changes
@@ -572,7 +599,7 @@ fn cmd_config(
 
         // Encode API key if updated
         if api_key_updated {
-            let use_kr = prompts::prompt_use_keyring(use_keyring, no_keyring)?;
+            let use_kr = prompts::prompt_use_keyring(params.use_keyring, params.no_keyring)?;
             if use_kr {
                 encode_api_key_in_fields(tool_name, &name, &mut updated_fields, true);
             }
@@ -582,7 +609,7 @@ fn cmd_config(
             .map_err(InteractiveError::input)?;
 
         // Handle rename
-        if let Some(new_name) = rename {
+        if let Some(new_name) = params.rename {
             config::validate_provider_name(new_name)?;
             if tool.providers.contains_key(new_name) {
                 return Err(ProviderError::InvalidName(new_name.to_string()).into());
@@ -591,18 +618,18 @@ fn cmd_config(
 
         let has_changes = home_opt.is_some()
             || !pending.is_empty()
-            || rename.is_some()
-            || !add_fallback.is_empty()
-            || !remove_fallback.is_empty();
+            || params.rename.is_some()
+            || !params.add_fallback.is_empty()
+            || !params.remove_fallback.is_empty();
         if !has_changes {
             println!("No changes made.");
             return Ok(());
         }
 
         // Show summary
-        show_config_summary(tool, &home_opt, &pending, add_fallback, remove_fallback, rename, &name);
+        show_config_summary(tool, &home_opt, &pending, params.add_fallback, params.remove_fallback, params.rename, &name);
 
-        if !prompts::confirm("Apply these changes?", yes)? {
+        if !prompts::confirm("Apply these changes?", params.yes)? {
             println!("Cancelled.");
             return Ok(());
         }
@@ -617,10 +644,10 @@ fn cmd_config(
         // Use updated_fields which may contain encoded API key
         p.fields = updated_fields;
 
-        config::add_fallback_urls(p, add_fallback);
-        config::remove_fallback_urls(p, remove_fallback);
+        config::add_fallback_urls(p, params.add_fallback);
+        config::remove_fallback_urls(p, params.remove_fallback);
 
-        if let Some(new_name) = rename {
+        if let Some(new_name) = params.rename {
             let p = tool.providers.remove(&name)
                 .ok_or_else(|| ProviderError::not_found(&name, tool_name))?;
             if is_active {
@@ -637,7 +664,7 @@ fn cmd_config(
         }
 
         config::save_config(cfg)?;
-        println!("Updated configuration for {}:{}.", tool_name, rename.unwrap_or(&name));
+        println!("Updated configuration for {}:{}.", tool_name, params.rename.unwrap_or(&name));
     } else {
         // Interactive path
         let (home_opt, changed) = prompts::prompt_config_edit(
@@ -645,7 +672,7 @@ fn cmd_config(
             &tool.home,
             Some(tool.providers.get_mut(&name)
                 .ok_or_else(|| ProviderError::not_found(&name, tool_name))?),
-            yes,
+            params.yes,
         )?;
 
         if !changed {
@@ -996,15 +1023,17 @@ mod tests {
         cmd_config(
             "claude",
             &mut cfg,
-            Some("prod"),
-            None,
-            &args,
-            None,
-            &["https://backup.example.com".to_string()],
-            &[],
-            false,
-            false,
-            true,
+            ConfigProviderParams {
+                provider: Some("prod"),
+                new_home: None,
+                cli_args: &args,
+                rename: None,
+                add_fallback: &["https://backup.example.com".to_string()],
+                remove_fallback: &[],
+                use_keyring: false,
+                no_keyring: false,
+                yes: true,
+            }
         )
         .unwrap();
 
@@ -1023,7 +1052,14 @@ mod tests {
         let mut cfg = config::AcsConfig::default();
         cfg.codex.home = "~/.codex".to_string();
         let args = [("base-url", "https://api.example.com")].into_iter().collect();
-        cmd_add("codex", &mut cfg, Some("prod"), &args, &[], false, false, true).unwrap();
+        cmd_add("codex", &mut cfg, AddProviderParams {
+            name: Some("prod"),
+            cli_args: &args,
+            fallback_urls: &[],
+            use_keyring: false,
+            no_keyring: false,
+            yes: true,
+        }).unwrap();
 
         let provider = &cfg.codex.providers["prod"];
         assert_eq!(provider.get("model_context_window"), Some("1000000"));
@@ -1054,7 +1090,17 @@ mod tests {
         );
         let args = [("model-context-window", "0")].into_iter().collect();
 
-        assert!(cmd_config("codex", &mut cfg, Some("prod"), None, &args, None, &[], &[], false, false, true).is_err());
+        assert!(cmd_config("codex", &mut cfg, ConfigProviderParams {
+            provider: Some("prod"),
+            new_home: None,
+            cli_args: &args,
+            rename: None,
+            add_fallback: &[],
+            remove_fallback: &[],
+            use_keyring: false,
+            no_keyring: false,
+            yes: true,
+        }).is_err());
         assert_eq!(cfg.codex.providers["prod"].get("model_context_window"), None);
     }
 

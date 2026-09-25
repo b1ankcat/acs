@@ -131,7 +131,7 @@ impl Provider {
 
 pub fn config_path() -> Result<PathBuf, AcsError> {
     let home = home::home_dir()
-        .ok_or_else(|| ConfigError::home_dir())?;
+        .ok_or_else(ConfigError::home_dir)?;
     Ok(home.join(".config/acs/config.toml"))
 }
 
@@ -175,7 +175,7 @@ pub fn save_config(config: &AcsConfig) -> Result<(), AcsError> {
 
 pub fn expand_path(path: &str) -> Result<String, AcsError> {
     let home = home::home_dir()
-        .ok_or_else(|| ConfigError::home_dir())?
+        .ok_or_else(ConfigError::home_dir)?
         .to_string_lossy()
         .into_owned();
     if let Some(rest) = path.strip_prefix("~/") {
@@ -220,7 +220,7 @@ pub fn write_settings(home: &str, value: &serde_json::Value) -> Result<(), AcsEr
 
 pub fn auto_import_defaults(config: &mut AcsConfig) -> Result<(), AcsError> {
     let home_path = home::home_dir()
-        .ok_or_else(|| ConfigError::home_dir())?;
+        .ok_or_else(ConfigError::home_dir)?;
     if home_path.as_os_str().is_empty() {
         return Ok(());
     }
